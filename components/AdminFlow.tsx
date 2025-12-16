@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Project, QuestionType, SurveyNode, NodeType } from '../types';
-import { Plus, Trash2, GripVertical, Save, Settings, FileText, BarChart3, Eye, Loader2, FolderPlus, FolderOpen, Image as ImageIcon, ChevronUp, Type, StopCircle, PlayCircle, Edit, Calendar, Hash, X } from 'lucide-react';
+import { Plus, Trash2, GripVertical, Save, Settings, FileText, BarChart3, Eye, Loader2, FolderPlus, FolderOpen, Image as ImageIcon, ChevronUp, Type, StopCircle, PlayCircle, Edit, Calendar, Hash, X, UploadCloud } from 'lucide-react';
 import { Button } from './ui/Button';
 import { supabase } from '../lib/supabaseClient';
 
@@ -37,8 +37,50 @@ const BuilderNodeRenderer: React.FC<{
   onDelete: (id: string) => void;
 }> = ({ node, level, onUpdate, onAddChild, onDelete }) => {
   const [showDetails, setShowDetails] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const isSection = node.type === NodeType.SECTION;
   const isText = node.type === NodeType.TEXT;
+
+  // 处理图片上传
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    try {
+      setUploading(true);
+      const file = event.target.files?.[0];
+      if (!file) throw new Error('You must select an image to upload.');
+
+      const fileExt = file.name.split('.').pop();
+      // 生成唯一文件名：节点ID + 时间戳
+      const fileName = `${node.id}_${Date.now()}.${fileExt}`;
+      const filePath = `${fileName}`;
+
+      // 1. 上传到 Supabase Storage (需要在 Supabase 创建名为 'survey-images' 的公开 bucket)
+      const { error: uploadError } = await supabase.storage
+        .from('survey-images')
+        .upload(filePath, file);
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      // 2. 获取公开访问链接
+      const { data: { publicUrl } } = supabase.storage
+        .from('survey-images')
+        .getPublicUrl(filePath);
+
+      // 3. 更新节点数据
+      onUpdate(node.id, 'imageUrl', publicUrl);
+
+    } catch (error: any) {
+      alert('Error uploading image: ' + error.message);
+    } finally {
+      setUploading(false);
+      // 清空 input防止重复选择同一文件不触发 onChange
+      if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+      }
+    }
+  };
 
   return (
     <div className={`
@@ -102,16 +144,69 @@ const BuilderNodeRenderer: React.FC<{
                     />
                  </div>
                )}
+               
+               {/* --- Modified Image Upload Section --- */}
                <div>
-                  <label className="block text-xs font-bold text-academic-500 uppercase tracking-wider mb-1">Image URL</label>
-                  <input 
-                     type="text"
-                     value={node.imageUrl || ''}
-                     onChange={(e) => onUpdate(node.id, 'imageUrl', e.target.value)}
-                     className="w-full text-xs p-2 border border-academic-200 rounded outline-none"
-                     placeholder="https://..."
+                  <label className="block text-xs font-bold text-academic-500 uppercase tracking-wider mb-2">Attached Image</label>
+                  
+                  {/* Hidden File Input */}
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleImageUpload}
+                    accept="image/*"
+                    className="hidden"
+                    disabled={uploading}
                   />
+
+                  <div className="flex flex-col gap-3">
+                    {/* Image Preview Area (Proportional Scale) */}
+                    {node.imageUrl && (
+                      <div className="relative group rounded-lg overflow-hidden border border-academic-200 bg-white">
+                        <img 
+                          src={node.imageUrl} 
+                          alt="Preview" 
+                          // The key styles for proportional scaling: w-full h-auto object-contain
+                          className="w-full h-auto max-h-[400px] object-contain" 
+                        />
+                         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                             <Button size="sm" variant="secondary" onClick={() => fileInputRef.current?.click()}>Change</Button>
+                             <Button size="sm" variant="destructive" onClick={() => onUpdate(node.id, 'imageUrl', '')}>Remove</Button>
+                         </div>
+                      </div>
+                    )}
+
+                    {/* Upload Button Area */}
+                    {!node.imageUrl && (
+                      <div 
+                        onClick={() => !uploading && fileInputRef.current?.click()}
+                        className={`border-2 border-dashed border-academic-300 rounded-lg p-6 flex flex-col items-center justify-center gap-2 text-academic-500 transition-colors ${!uploading ? 'cursor-pointer hover:border-primary-500 hover:text-primary-600 hover:bg-primary-50/50' : 'opacity-60 cursor-not-allowed'}`}
+                      >
+                        {uploading ? (
+                          <>
+                            <Loader2 className="w-6 h-6 animate-spin text-primary-500" />
+                            <span className="text-sm font-medium">Uploading to cloud...</span>
+                          </>
+                        ) : (
+                          <>
+                            <UploadCloud className="w-6 h-6" />
+                            <span className="text-sm font-medium">Click to upload image</span>
+                            <span className="text-xs text-academic-400">(JPG, PNG, GIF up to 5MB)</span>
+                          </>
+                        )}
+                      </div>
+                    )}
+                     
+                     {/* Optional URL fallback */}
+                     {node.imageUrl && (
+                        <div className="text-xs text-academic-400 truncate px-1">
+                           Source: {node.imageUrl}
+                        </div>
+                     )}
+                  </div>
                </div>
+               {/* --- End Modified Section --- */}
+
             </div>
           )}
 
@@ -169,7 +264,7 @@ const BuilderNodeRenderer: React.FC<{
       {isSection && node.children.length > 0 && (
          <div className="mt-4">
             {node.children.map((child, idx) => (
-               <BuilderNodeRenderer key={child.id} node={child} level={`${level}.${idx + 1}`} onUpdate={onUpdate} onAddChild={onAddChild} onDelete={onDelete} />
+               <BuilderNodeRenderer key={child.id} node={child} level={`${level}.${idx + 1}`} onUpdate={handleImageUpload} onAddChild={onAddChild} onDelete={onDelete} />
             ))}
          </div>
       )}
@@ -179,6 +274,9 @@ const BuilderNodeRenderer: React.FC<{
 
 // --- Preview Node Renderer (预览模式组件 - 模拟专家视角) ---
 const PreviewNodeRenderer: React.FC<{ node: SurveyNode; level: string }> = ({ node, level }) => {
+  // Shared Image Style for Preview and Expert View: Proportional scale to fill width
+  const imageStyleClass = "w-full h-auto object-contain rounded mb-4 border border-academic-200";
+
   if (node.type === NodeType.SECTION) {
     return (
       <div className="mb-6 border-l-2 border-academic-200 pl-4 mt-4">
@@ -186,7 +284,8 @@ const PreviewNodeRenderer: React.FC<{ node: SurveyNode; level: string }> = ({ no
           <span className="text-sm font-mono text-academic-400">{level}</span> {node.title || 'Untitled Section'}
         </h3>
         {node.description && <p className="text-sm text-academic-600 mb-4 bg-academic-50 p-3 rounded">{node.description}</p>}
-        {node.imageUrl && <img src={node.imageUrl} className="max-h-48 rounded mb-4 border" alt="Section" />}
+        {/* Updated Image Style */}
+        {node.imageUrl && <img src={node.imageUrl} className={imageStyleClass} alt="Section" />}
         <div className="space-y-4">
           {node.children.map((child, idx) => <PreviewNodeRenderer key={child.id} node={child} level={`${level}.${idx+1}`} />)}
         </div>
@@ -197,7 +296,8 @@ const PreviewNodeRenderer: React.FC<{ node: SurveyNode; level: string }> = ({ no
     return (
        <div className="bg-white p-4 rounded border border-academic-100 mb-4">
           <h4 className="font-bold text-academic-900">{node.title}</h4>
-          {node.imageUrl && <img src={node.imageUrl} className="max-h-64 rounded my-2" alt="Content" />}
+          {/* Updated Image Style */}
+          {node.imageUrl && <img src={node.imageUrl} className={imageStyleClass} alt="Content" />}
           <p className="text-sm text-academic-600 whitespace-pre-wrap">{node.description}</p>
        </div>
     );
@@ -210,7 +310,8 @@ const PreviewNodeRenderer: React.FC<{ node: SurveyNode; level: string }> = ({ no
           <div className="flex-1">
              <h4 className="font-medium text-academic-900 mb-2">{node.title || 'Untitled Question'}</h4>
              {node.description && <p className="text-sm text-academic-500 mb-3">{node.description}</p>}
-             {node.imageUrl && <img src={node.imageUrl} className="max-h-48 rounded mb-3 border" alt="Question" />}
+             {/* Updated Image Style */}
+             {node.imageUrl && <img src={node.imageUrl} className={imageStyleClass} alt="Question" />}
              
              {/* Mock Inputs */}
              <div className="mt-2 pointer-events-none opacity-80">
@@ -554,6 +655,7 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
                                 <input type="date" className="text-sm border rounded px-2 py-1" value={proj.deadline ? new Date(proj.deadline).toISOString().split('T')[0] : ''} onChange={(e) => handleDeadlineChange(proj.id, e.target.value)} disabled={updatingId === proj.id} />
                              </td>
                              <td className="px-6 py-4 text-right space-x-2">
+                                {/* Edit Button - Only for DRAFT projects */}
                                 {proj.status === 'DRAFT' && (
                                    <Button size="sm" variant="secondary" onClick={() => handleEditProject(proj)} className="text-xs">
                                       <Edit className="w-3 h-3 mr-1"/> Edit
@@ -609,4 +711,3 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
       </div>
     </div>
   );
-};
