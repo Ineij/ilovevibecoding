@@ -54,7 +54,7 @@ const BuilderNodeRenderer: React.FC<{
       const fileName = `${node.id}_${Date.now()}.${fileExt}`;
       const filePath = `${fileName}`;
 
-      // 1. 上传到 Supabase Storage (需要在 Supabase 创建名为 'survey-images' 的公开 bucket)
+      // 1. 上传到 Supabase Storage
       const { error: uploadError } = await supabase.storage
         .from('survey-images')
         .upload(filePath, file);
@@ -145,7 +145,7 @@ const BuilderNodeRenderer: React.FC<{
                  </div>
                )}
                
-               {/* --- Modified Image Upload Section --- */}
+               {/* --- Image Upload Section --- */}
                <div>
                   <label className="block text-xs font-bold text-academic-500 uppercase tracking-wider mb-2">Attached Image</label>
                   
@@ -160,13 +160,12 @@ const BuilderNodeRenderer: React.FC<{
                   />
 
                   <div className="flex flex-col gap-3">
-                    {/* Image Preview Area (Proportional Scale) */}
+                    {/* Image Preview Area */}
                     {node.imageUrl && (
                       <div className="relative group rounded-lg overflow-hidden border border-academic-200 bg-white">
                         <img 
                           src={node.imageUrl} 
                           alt="Preview" 
-                          // The key styles for proportional scaling: w-full h-auto object-contain
                           className="w-full h-auto max-h-[400px] object-contain" 
                         />
                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
@@ -205,7 +204,6 @@ const BuilderNodeRenderer: React.FC<{
                      )}
                   </div>
                </div>
-               {/* --- End Modified Section --- */}
 
             </div>
           )}
@@ -261,10 +259,11 @@ const BuilderNodeRenderer: React.FC<{
           )}
         </div>
       </div>
+      {/* 递归渲染子节点 - 修复了之前的 bug，正确传递了 onUpdate */}
       {isSection && node.children.length > 0 && (
          <div className="mt-4">
             {node.children.map((child, idx) => (
-               <BuilderNodeRenderer key={child.id} node={child} level={`${level}.${idx + 1}`} onUpdate={handleImageUpload} onAddChild={onAddChild} onDelete={onDelete} />
+               <BuilderNodeRenderer key={child.id} node={child} level={`${level}.${idx + 1}`} onUpdate={onUpdate} onAddChild={onAddChild} onDelete={onDelete} />
             ))}
          </div>
       )}
@@ -272,9 +271,9 @@ const BuilderNodeRenderer: React.FC<{
   );
 };
 
-// --- Preview Node Renderer (预览模式组件 - 模拟专家视角) ---
+// --- Preview Node Renderer (预览模式组件) ---
 const PreviewNodeRenderer: React.FC<{ node: SurveyNode; level: string }> = ({ node, level }) => {
-  // Shared Image Style for Preview and Expert View: Proportional scale to fill width
+  // 预览样式：宽度铺满，高度自适应
   const imageStyleClass = "w-full h-auto object-contain rounded mb-4 border border-academic-200";
 
   if (node.type === NodeType.SECTION) {
@@ -284,7 +283,6 @@ const PreviewNodeRenderer: React.FC<{ node: SurveyNode; level: string }> = ({ no
           <span className="text-sm font-mono text-academic-400">{level}</span> {node.title || 'Untitled Section'}
         </h3>
         {node.description && <p className="text-sm text-academic-600 mb-4 bg-academic-50 p-3 rounded">{node.description}</p>}
-        {/* Updated Image Style */}
         {node.imageUrl && <img src={node.imageUrl} className={imageStyleClass} alt="Section" />}
         <div className="space-y-4">
           {node.children.map((child, idx) => <PreviewNodeRenderer key={child.id} node={child} level={`${level}.${idx+1}`} />)}
@@ -296,7 +294,6 @@ const PreviewNodeRenderer: React.FC<{ node: SurveyNode; level: string }> = ({ no
     return (
        <div className="bg-white p-4 rounded border border-academic-100 mb-4">
           <h4 className="font-bold text-academic-900">{node.title}</h4>
-          {/* Updated Image Style */}
           {node.imageUrl && <img src={node.imageUrl} className={imageStyleClass} alt="Content" />}
           <p className="text-sm text-academic-600 whitespace-pre-wrap">{node.description}</p>
        </div>
@@ -310,7 +307,6 @@ const PreviewNodeRenderer: React.FC<{ node: SurveyNode; level: string }> = ({ no
           <div className="flex-1">
              <h4 className="font-medium text-academic-900 mb-2">{node.title || 'Untitled Question'}</h4>
              {node.description && <p className="text-sm text-academic-500 mb-3">{node.description}</p>}
-             {/* Updated Image Style */}
              {node.imageUrl && <img src={node.imageUrl} className={imageStyleClass} alt="Question" />}
              
              {/* Mock Inputs */}
@@ -413,7 +409,6 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
 
   // --- Handlers ---
 
-  // 编辑已有项目 (撤回后编辑)
   const handleEditProject = (project: any) => {
     setSurveyTitle(project.title);
     setSurveySubtitle(project.subtitle || '');
@@ -439,20 +434,18 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
        total_rounds: totalRounds,
        deadline: new Date(deadlineDate).toISOString(),
        language: surveyLanguage,
-       status: 'PUBLISHED' // Editing essentially re-publishes or updates draft
+       status: 'PUBLISHED'
     };
 
     let error;
 
     if (editingProjectId) {
-      // Update existing project
       const { error: updateError } = await supabase
         .from('projects')
         .update(projectPayload)
         .eq('id', editingProjectId);
       error = updateError;
     } else {
-      // Create new project
       const { error: insertError } = await supabase
         .from('projects')
         .insert([{ ...projectPayload, id: crypto.randomUUID() }]);
@@ -466,7 +459,6 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
        alert(`Error saving: ${error.message}`);
     } else {
        alert(editingProjectId ? 'Project UPDATED successfully!' : 'Project PUBLISHED successfully!');
-       // Reset Form if it was a new project, or keep it if editing? Let's reset to clear state.
        setNodes([]);
        setSurveyTitle('New Consensus Round');
        setEditingProjectId(null);
@@ -655,7 +647,6 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
                                 <input type="date" className="text-sm border rounded px-2 py-1" value={proj.deadline ? new Date(proj.deadline).toISOString().split('T')[0] : ''} onChange={(e) => handleDeadlineChange(proj.id, e.target.value)} disabled={updatingId === proj.id} />
                              </td>
                              <td className="px-6 py-4 text-right space-x-2">
-                                {/* Edit Button - Only for DRAFT projects */}
                                 {proj.status === 'DRAFT' && (
                                    <Button size="sm" variant="secondary" onClick={() => handleEditProject(proj)} className="text-xs">
                                       <Edit className="w-3 h-3 mr-1"/> Edit
@@ -711,3 +702,4 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
       </div>
     </div>
   );
+};
