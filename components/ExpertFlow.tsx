@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Project, SurveyNode, NodeType, QuestionType } from '../types';
 import { Button } from './ui/Button';
 import { supabase } from '../lib/supabaseClient';
-import { CheckCircle2, Save, Send, Loader2, User, Building, Clock, ChevronRight, Briefcase, GraduationCap, Phone, ArrowLeft, LogIn, UserPlus } from 'lucide-react';
+import { CheckCircle2, Save, Send, Loader2, User, Building, ChevronRight, ArrowLeft, LogIn, UserPlus } from 'lucide-react';
 
 interface ExpertFlowProps {}
 
@@ -25,7 +25,7 @@ const INITIAL_PROFILE: ExpertProfile = {
 };
 
 export const ExpertFlow: React.FC<ExpertFlowProps> = () => {
-  // 步骤控制：增加了 AUTH_CHOICE (选择登录或注册), AUTH_LOGIN, AUTH_REGISTER
+  // 步骤控制
   const [step, setStep] = useState<'AUTH_CHOICE' | 'AUTH_LOGIN' | 'AUTH_REGISTER' | 'PROJECT_SELECT' | 'SURVEY' | 'COMPLETED'>('AUTH_CHOICE');
   
   const [profile, setProfile] = useState<ExpertProfile>(INITIAL_PROFILE);
@@ -62,7 +62,7 @@ export const ExpertFlow: React.FC<ExpertFlowProps> = () => {
       // 查询是否存在
       const { data: existingExperts, error } = await supabase
         .from('experts')
-        .select('id, name, institution') // 这里可以多选一些字段回显，但为了安全先只取ID
+        .select('id, name, institution')
         .eq('name', profile.name.trim())
         .eq('institution', profile.institution.trim());
 
@@ -150,7 +150,7 @@ export const ExpertFlow: React.FC<ExpertFlowProps> = () => {
 
       if (existingResponse?.answers) {
         setAnswers(existingResponse.answers);
-        // 可选：提示恢复成功
+        alert(`Welcome back! Progress restored.`);
       } else {
         setAnswers({});
       }
@@ -159,27 +159,63 @@ export const ExpertFlow: React.FC<ExpertFlowProps> = () => {
     finally { setLoadingMsg(''); }
   };
 
-  // 5. 保存/提交
+  // 5. 保存/提交 (包含详细报错弹窗)
   const saveOrSubmit = async (status: 'DRAFT' | 'SUBMITTED') => {
-    if (!selectedProject || !expertId) return;
+    // 检查关键ID
+    if (!selectedProject) {
+      alert("❌ Error: Project ID missing.");
+      return;
+    }
+    if (!expertId) {
+      alert("❌ Error: Expert ID missing. Please re-login.");
+      return;
+    }
+
     const isDraft = status === 'DRAFT';
     isDraft ? setIsSavingDraft(true) : setIsSubmitting(true);
 
     try {
-      const { data: existingRow } = await supabase.from('responses').select('id').eq('project_id', selectedProject.id).eq('expert_id', expertId).maybeSingle();
-      
       const payload = {
-        project_id: selectedProject.id, expert_id: expertId, answers: answers, status: status, updated_at: new Date().toISOString()
+        project_id: selectedProject.id,
+        expert_id: expertId,
+        answers: answers,
+        status: status,
+        updated_at: new Date().toISOString()
       };
 
-      if (existingRow) await supabase.from('responses').update(payload).eq('id', existingRow.id);
-      else await supabase.from('responses').insert([payload]);
+      console.log("Submitting payload:", payload);
 
-      if (isDraft) alert('Progress saved successfully.');
+      // 查询是否存在记录
+      const { data: existingRow, error: fetchError } = await supabase
+        .from('responses')
+        .select('id')
+        .eq('project_id', selectedProject.id)
+        .eq('expert_id', expertId)
+        .maybeSingle();
+
+      if (fetchError) throw new Error("Check history failed: " + fetchError.message);
+
+      let error;
+      if (existingRow) {
+        const { error: updateError } = await supabase.from('responses').update(payload).eq('id', existingRow.id);
+        error = updateError;
+      } else {
+        const { error: insertError } = await supabase.from('responses').insert([payload]);
+        error = insertError;
+      }
+
+      if (error) throw new Error(error.message);
+
+      if (isDraft) alert('✅ Progress saved!');
       else setStep('COMPLETED');
 
-    } catch (e: any) { alert('Save failed: ' + e.message); }
-    finally { setIsSavingDraft(false); setIsSubmitting(false); }
+    } catch (e: any) {
+      console.error("Submit Error:", e);
+      alert(`❌ Failed: ${e.message}`);
+    } finally {
+      setIsSavingDraft(false);
+      setIsSubmitting(false);
+    }
   };
 
   // --- RENDER ---
@@ -238,11 +274,17 @@ export const ExpertFlow: React.FC<ExpertFlowProps> = () => {
           <div className="space-y-4">
              <div>
                <label className="block text-xs font-bold text-academic-500 uppercase mb-1">Full Name</label>
-               <input className="w-full border p-3 rounded-lg outline-none focus:ring-2 ring-primary-200" placeholder="Your Name" value={profile.name} onChange={e => setProfile({...profile, name: e.target.value})} />
+               <div className="flex items-center border rounded-lg px-3 py-2 bg-gray-50 focus-within:bg-white focus-within:ring-2 ring-primary-100">
+                  <User className="w-4 h-4 text-academic-400 mr-2"/>
+                  <input className="w-full bg-transparent outline-none text-sm" placeholder="Your Name" value={profile.name} onChange={e => setProfile({...profile, name: e.target.value})} />
+               </div>
              </div>
              <div>
                <label className="block text-xs font-bold text-academic-500 uppercase mb-1">Institution</label>
-               <input className="w-full border p-3 rounded-lg outline-none focus:ring-2 ring-primary-200" placeholder="Your Hospital / University" value={profile.institution} onChange={e => setProfile({...profile, institution: e.target.value})} />
+               <div className="flex items-center border rounded-lg px-3 py-2 bg-gray-50 focus-within:bg-white focus-within:ring-2 ring-primary-100">
+                  <Building className="w-4 h-4 text-academic-400 mr-2"/>
+                  <input className="w-full bg-transparent outline-none text-sm" placeholder="Your Hospital / University" value={profile.institution} onChange={e => setProfile({...profile, institution: e.target.value})} />
+               </div>
              </div>
              <Button className="w-full mt-2" size="lg" onClick={handleLogin} disabled={!!loadingMsg}>
                {loadingMsg || 'Log In'}
@@ -261,7 +303,7 @@ export const ExpertFlow: React.FC<ExpertFlowProps> = () => {
           <button onClick={() => setStep('AUTH_CHOICE')} className="absolute top-4 left-4 text-academic-400 hover:text-academic-900"><ArrowLeft className="w-5 h-5"/></button>
           <div className="text-center mb-6 mt-2">
              <h2 className="text-xl font-bold text-academic-900">Expert Registration</h2>
-             <p className="text-xs text-academic-500 mt-1">Please provide complete information for Delphi analysis</p>
+             <p className="text-xs text-academic-500 mt-1">Please provide complete information</p>
           </div>
           
           <div className="space-y-4">
@@ -331,7 +373,7 @@ export const ExpertFlow: React.FC<ExpertFlowProps> = () => {
     );
   }
 
-  // SCREEN 4: 项目列表 (保持不变，只是适配了样式)
+  // SCREEN 4: 项目列表
   if (step === 'PROJECT_SELECT') {
     return (
       <div className="min-h-screen bg-academic-50 p-4">
@@ -422,7 +464,7 @@ export const ExpertFlow: React.FC<ExpertFlowProps> = () => {
   );
 };
 
-// --- Helper: Question Renderer (保持不变) ---
+// --- Helper: Question Renderer (手机适配优化版) ---
 const QuestionRenderer: React.FC<{ node: SurveyNode; level: string; answers: any; setAnswers: any; }> = ({ node, level, answers, setAnswers }) => {
    if (node.type === NodeType.SECTION) {
       return (
