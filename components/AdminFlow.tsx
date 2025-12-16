@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Project, QuestionType, SurveyNode, NodeType } from '../types';
-import { Plus, Trash2, GripVertical, Save, Settings, FileText, BarChart3, Eye, Loader2, FolderPlus, FolderOpen, Image as ImageIcon, ChevronUp, Type, StopCircle, PlayCircle, Edit, Calendar, Hash, X, UploadCloud, Copy, Menu } from 'lucide-react';
+import { Plus, Trash2, GripVertical, Save, Settings, FileText, BarChart3, Eye, Loader2, FolderPlus, FolderOpen, Image as ImageIcon, ChevronUp, Type, StopCircle, PlayCircle, Edit, Calendar, Hash, X, UploadCloud, Copy, Menu, Download } from 'lucide-react';
 import { Button } from './ui/Button';
 import { supabase } from '../lib/supabaseClient';
 
@@ -26,6 +26,21 @@ const addChildToNode = (nodes: SurveyNode[], parentId: string, newNode: SurveyNo
     if (node.children) return { ...node, children: addChildToNode(node.children, parentId, newNode) };
     return node;
   });
+};
+
+// --- Helper: Flatten Nodes for CSV Export ---
+const flattenQuestions = (nodes: SurveyNode[]): SurveyNode[] => {
+  let flat: SurveyNode[] = [];
+  nodes.forEach(node => {
+    // 只提取“题目”类型的节点，跳过纯文本和章节标题
+    if (node.type === NodeType.QUESTION) {
+      flat.push(node);
+    }
+    if (node.children && node.children.length > 0) {
+      flat = [...flat, ...flattenQuestions(node.children)];
+    }
+  });
+  return flat;
 };
 
 // --- Component: Builder Node Renderer ---
@@ -201,7 +216,7 @@ const BuilderNodeRenderer: React.FC<{
   );
 };
 
-// --- Component: Preview (Mock Expert View) ---
+// --- Component: Preview ---
 const PreviewNodeRenderer: React.FC<{ node: SurveyNode; level: string }> = ({ node, level }) => {
   const imageStyleClass = "w-full h-auto object-contain rounded mb-4 border border-academic-200";
 
@@ -284,6 +299,7 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
   const [showPreview, setShowPreview] = useState(false);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isExporting, setIsExporting] = useState(false); // Export State
 
   // Projects View State
   const [existingProjects, setExistingProjects] = useState<Project[]>([]);
@@ -305,11 +321,13 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
 
   const fetchResponses = async () => {
     setIsLoadingResponses(true);
-    const { data: responseData, error } = await supabase.from('responses').select('*, experts(name, institution), projects(title)');
+    const { data: responseData, error } = await supabase.from('responses').select('*, experts(*), projects(title)');
     if (!error && responseData) {
       setResponses(responseData.map((r: any) => ({
         id: r.id, name: r.experts?.name || 'Unknown', institution: r.experts?.institution || 'Unknown',
-        status: 'SUBMITTED', title: r.projects?.title || 'Untitled', details: r.answers
+        status: r.status || 'SUBMITTED', title: r.projects?.title || 'Untitled', details: r.answers,
+        // 保留原始 expert 对象以便查看详情
+        expertFull: r.experts 
       })));
     }
     setIsLoadingResponses(false);
@@ -319,6 +337,87 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
     if (activeTab === 'RESPONSES') fetchResponses();
     if (activeTab === 'PROJECTS') fetchProjectsList();
   }, [activeTab]);
+
+  // --- CSV Export Logic ---
+  const handleExportCSV = async (project: Project) => {
+    try {
+      setIsExporting(true);
+      
+      // 1. 获取该项目的所有 Responses（包含专家详情）
+      const { data: responseData, error } = await supabase
+        .from('responses')
+        .select('*, experts(*)')
+        .eq('project_id', project.id);
+        
+      if (error) throw error;
+      if (!responseData || responseData.length === 0) {
+        alert("No responses found for this project.");
+        return;
+      }
+
+      // 2. 准备表头：专家信息 + 所有问题标题
+      const questionNodes = flattenQuestions(project.nodes || []);
+      
+      // 定义固定的专家信息列
+      const expertHeaders = [
+        "Expert Name", "Institution", "Department", "Job Title", 
+        "Education", "Major", "Years Exp", "Phone", "Email", "Submit Status", "Submit Time"
+      ];
+      
+      // 动态的题目列 (用 'Q1: 标题' 格式)
+      const questionHeaders = questionNodes.map((q, idx) => `Q${idx + 1}: ${q.title}`);
+      
+      const csvRows = [];
+      // 添加第一行表头
+      csvRows.push([...expertHeaders, ...questionHeaders].join(","));
+
+      // 3. 填充数据行
+      responseData.forEach((resp: any) => {
+        const exp = resp.experts || {};
+        const answers = resp.answers || {};
+        
+        // 提取专家信息 (处理可能的逗号，防止破坏CSV格式)
+        const expertData = [
+          exp.name || "",
+          exp.institution || "",
+          exp.department || "",
+          exp.job_title || "",
+          exp.education || "",
+          exp.major || "",
+          exp.years_experience || "",
+          exp.phone || "",
+          exp.email || "",
+          resp.status || "SUBMITTED",
+          new Date(resp.updated_at).toLocaleString()
+        ].map(field => `"${String(field).replace(/"/g, '""')}"`); // 给每个字段加引号处理
+
+        // 提取问题答案 (按表头顺序匹配)
+        const answerData = questionNodes.map(q => {
+          const val = answers[q.id];
+          if (val === undefined || val === null) return "";
+          return `"${String(val).replace(/"/g, '""')}"`;
+        });
+
+        csvRows.push([...expertData, ...answerData].join(","));
+      });
+
+      // 4. 触发下载
+      const csvString = '\uFEFF' + csvRows.join("\n"); // 添加 BOM 防止中文乱码
+      const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `Delphi_Round${project.round}_Export_${new Date().toISOString().slice(0,10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+    } catch (e: any) {
+      alert("Export failed: " + e.message);
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   // --- Handlers ---
   const handleEditProject = (project: any) => {
@@ -335,37 +434,22 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
     setIsMobileMenuOpen(false);
   };
 
-  // --- DUPLICATE FUNCTION (Here is the key logic!) ---
   const handleDuplicateProject = (project: any) => {
-    // 1. Confirm action
     const confirmCopy = window.confirm(`Duplicate "${project.title}" to start the next round?`);
     if (!confirmCopy) return;
 
-    // 2. Load data into Builder, but modify for new project
     setSurveyTitle(`Copy of ${project.title}`);
     setSurveySubtitle(project.subtitle || '');
     setSurveyDescription(project.description || '');
     setSurveyLanguage(project.language || 'en');
-    
-    // Deep copy nodes to ensure no reference issues
     const nodesCopy = JSON.parse(JSON.stringify(project.nodes || []));
     setNodes(nodesCopy);
-    
-    // Auto increment round
     setCurrentRound((project.round || 1) + 1);
     setTotalRounds(project.total_rounds || 3);
-    
-    // Reset deadline to 7 days from now
     setDeadlineDate(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
-
-    // IMPORTANT: Set ID to null so 'Save' creates a NEW entry
     setEditingProjectId(null); 
-    
-    // 3. Switch view
     setActiveTab('BUILDER');
     setIsMobileMenuOpen(false);
-    
-    // 4. Notify user
     alert(`Draft created based on "${project.title}". You are now editing a NEW project for Round ${(project.round || 1) + 1}.`);
   };
 
@@ -433,7 +517,7 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
       `}>
         <div className="p-6 border-b border-academic-800 hidden md:block">
           <div className="font-bold text-lg tracking-wider text-white">ADMIN CONSOLE</div>
-          <div className="text-xs text-academic-400 mt-1">Delphi Manager v2.3</div>
+          <div className="text-xs text-academic-400 mt-1">Delphi Manager v2.4</div>
         </div>
         <nav className="p-4 space-y-2">
           <button onClick={() => {setActiveTab('BUILDER'); setEditingProjectId(null); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3 rounded-md transition-all ${activeTab === 'BUILDER' ? 'bg-primary-700 text-white' : 'hover:bg-academic-800 text-academic-400'}`}>
@@ -533,7 +617,7 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
            <div className="max-w-6xl mx-auto py-6 px-4 md:py-12 md:px-8">
               <h1 className="text-xl md:text-2xl font-bold text-academic-900 mb-6">Manage Projects</h1>
               
-              {/* Mobile Card View (Updated with Duplicate) */}
+              {/* Mobile Card View */}
               <div className="md:hidden space-y-4">
                  {existingProjects.map((proj) => (
                     <div key={proj.id} className="bg-white p-4 rounded-lg shadow border border-academic-200">
@@ -544,10 +628,13 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
                           </div>
                           <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${proj.status === 'PUBLISHED' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{proj.status}</span>
                        </div>
-                       <div className="flex justify-end gap-2 mt-4 pt-3 border-t">
-                          {/* Duplicate Button */}
+                       <div className="flex flex-wrap justify-end gap-2 mt-4 pt-3 border-t">
+                          {/* Export Button */}
+                          <Button size="sm" variant="secondary" onClick={() => handleExportCSV(proj)} disabled={isExporting}>
+                             <Download className="w-3 h-3 mr-1"/> Data
+                          </Button>
+
                           <Button size="sm" variant="secondary" onClick={() => handleDuplicateProject(proj)}><Copy className="w-3 h-3 mr-1"/> Copy</Button>
-                          
                           {proj.status === 'DRAFT' && <Button size="sm" variant="secondary" onClick={() => handleEditProject(proj)}><Edit className="w-3 h-3 mr-1"/> Edit</Button>}
                           <Button size="sm" variant="outline" onClick={() => handleStatusChange(proj.id, proj.status)}>{proj.status === 'PUBLISHED' ? 'Retract' : 'Publish'}</Button>
                        </div>
@@ -555,7 +642,7 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
                  ))}
               </div>
 
-              {/* Desktop Table View (Updated with Duplicate) */}
+              {/* Desktop Table View */}
               <div className="hidden md:block bg-white rounded-xl shadow-sm border border-academic-200 overflow-hidden">
                  <table className="w-full text-left">
                     <thead className="bg-academic-50 border-b border-academic-200">
@@ -568,9 +655,12 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
                              <td className="px-6 py-4 text-sm">{proj.round} / {proj.totalRounds}</td>
                              <td className="px-6 py-4"><span className={`px-2 py-0.5 rounded text-xs font-bold ${proj.status === 'PUBLISHED' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{proj.status}</span></td>
                              <td className="px-6 py-4 text-right space-x-2">
-                                {/* Duplicate Button */}
+                                {/* Export Button */}
+                                <Button size="sm" variant="secondary" onClick={() => handleExportCSV(proj)} disabled={isExporting}>
+                                   <Download className="w-3 h-3 mr-1"/> Data
+                                </Button>
+
                                 <Button size="sm" variant="secondary" onClick={() => handleDuplicateProject(proj)}><Copy className="w-3 h-3 mr-1"/> Duplicate</Button>
-                                
                                 {proj.status === 'DRAFT' && <Button size="sm" variant="secondary" onClick={() => handleEditProject(proj)}><Edit className="w-3 h-3 mr-1"/> Edit</Button>}
                                 <Button size="sm" variant="outline" onClick={() => handleStatusChange(proj.id, proj.status)} disabled={updatingId === proj.id}>
                                    {updatingId === proj.id ? <Loader2 className="w-3 h-3 animate-spin"/> : (proj.status === 'PUBLISHED' ? <StopCircle className="w-3 h-3 mr-1"/> : <PlayCircle className="w-3 h-3 mr-1"/>)}
