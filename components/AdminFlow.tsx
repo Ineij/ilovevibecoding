@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Project, QuestionType, SurveyNode, NodeType } from '../types';
-import { Plus, Trash2, GripVertical, Save, Settings, FileText, BarChart3, Eye, Loader2, FolderPlus, FolderOpen, Image as ImageIcon, ChevronUp, Type, StopCircle, PlayCircle } from 'lucide-react';
+import { Plus, Trash2, GripVertical, Save, Settings, FileText, BarChart3, Eye, Loader2, FolderPlus, FolderOpen, Image as ImageIcon, ChevronUp, Type, StopCircle, PlayCircle, Edit, Calendar, Hash, X } from 'lucide-react';
 import { Button } from './ui/Button';
 import { supabase } from '../lib/supabaseClient';
 
-// --- Recursive Builder Node Component ---
+// --- Recursive Builder Node Component (编辑模式组件) ---
 const updateNodeInTree = (nodes: SurveyNode[], nodeId: string, updateFn: (n: SurveyNode) => SurveyNode): SurveyNode[] => {
   return nodes.map(node => {
     if (node.id === nodeId) return updateFn(node);
@@ -28,7 +28,7 @@ const addChildToNode = (nodes: SurveyNode[], parentId: string, newNode: SurveyNo
   });
 };
 
-// 独立的组件渲染器
+// 构建器节点渲染
 const BuilderNodeRenderer: React.FC<{
   node: SurveyNode;
   level: string;
@@ -177,6 +177,70 @@ const BuilderNodeRenderer: React.FC<{
   );
 };
 
+// --- Preview Node Renderer (预览模式组件 - 模拟专家视角) ---
+const PreviewNodeRenderer: React.FC<{ node: SurveyNode; level: string }> = ({ node, level }) => {
+  if (node.type === NodeType.SECTION) {
+    return (
+      <div className="mb-6 border-l-2 border-academic-200 pl-4 mt-4">
+        <h3 className="text-lg font-bold text-academic-800 mb-2 flex items-center gap-2">
+          <span className="text-sm font-mono text-academic-400">{level}</span> {node.title || 'Untitled Section'}
+        </h3>
+        {node.description && <p className="text-sm text-academic-600 mb-4 bg-academic-50 p-3 rounded">{node.description}</p>}
+        {node.imageUrl && <img src={node.imageUrl} className="max-h-48 rounded mb-4 border" alt="Section" />}
+        <div className="space-y-4">
+          {node.children.map((child, idx) => <PreviewNodeRenderer key={child.id} node={child} level={`${level}.${idx+1}`} />)}
+        </div>
+      </div>
+    );
+  }
+  if (node.type === NodeType.TEXT) {
+    return (
+       <div className="bg-white p-4 rounded border border-academic-100 mb-4">
+          <h4 className="font-bold text-academic-900">{node.title}</h4>
+          {node.imageUrl && <img src={node.imageUrl} className="max-h-64 rounded my-2" alt="Content" />}
+          <p className="text-sm text-academic-600 whitespace-pre-wrap">{node.description}</p>
+       </div>
+    );
+  }
+  // Question
+  return (
+    <div className="bg-white p-5 rounded-lg border border-academic-200 shadow-sm mb-4">
+       <div className="flex gap-3">
+          <span className="text-xs font-mono text-academic-400 mt-1">{level}</span>
+          <div className="flex-1">
+             <h4 className="font-medium text-academic-900 mb-2">{node.title || 'Untitled Question'}</h4>
+             {node.description && <p className="text-sm text-academic-500 mb-3">{node.description}</p>}
+             {node.imageUrl && <img src={node.imageUrl} className="max-h-48 rounded mb-3 border" alt="Question" />}
+             
+             {/* Mock Inputs */}
+             <div className="mt-2 pointer-events-none opacity-80">
+                {node.questionType === QuestionType.LIKERT_SCALE && (
+                   <div className="flex justify-between max-w-xs">
+                      {Array.from({length: node.likertScale || 5}, (_, i) => i + 1).map(n => (
+                         <div key={n} className="w-8 h-8 rounded-full border border-academic-300 flex items-center justify-center text-xs text-academic-500">{n}</div>
+                      ))}
+                   </div>
+                )}
+                {node.questionType === QuestionType.SINGLE_CHOICE && (
+                   <div className="space-y-2">
+                      {node.options?.map(opt => (
+                         <div key={opt.id} className="flex items-center gap-2">
+                            <div className="w-4 h-4 rounded-full border border-academic-400"></div>
+                            <span className="text-sm text-academic-700">{opt.label}</span>
+                         </div>
+                      ))}
+                   </div>
+                )}
+                {node.questionType === QuestionType.TEXT_AREA && (
+                   <div className="h-20 border border-academic-200 rounded bg-academic-50"></div>
+                )}
+             </div>
+          </div>
+       </div>
+    </div>
+  );
+}
+
 // --- MAIN ADMIN COMPONENT ---
 interface AdminFlowProps {
   onProjectPublished?: () => void;
@@ -191,6 +255,14 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
   const [surveyDescription, setSurveyDescription] = useState('');
   const [surveyLanguage, setSurveyLanguage] = useState<'en' | 'cn'>('en');
   const [nodes, setNodes] = useState<SurveyNode[]>([]);
+  
+  // New Features State
+  const [currentRound, setCurrentRound] = useState(1);
+  const [totalRounds, setTotalRounds] = useState(3);
+  const [deadlineDate, setDeadlineDate] = useState(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
+  const [showPreview, setShowPreview] = useState(false);
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
+
   const [isSaving, setIsSaving] = useState(false);
 
   // Projects View State
@@ -203,7 +275,7 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
   const [isLoadingResponses, setIsLoadingResponses] = useState(false);
   const [selectedResponse, setSelectedResponse] = useState<any>(null);
 
-  // --- 1. Define Functions FIRST (before useEffect) ---
+  // --- Functions ---
 
   const fetchProjectsList = async () => {
      setIsLoadingProjects(true);
@@ -233,35 +305,58 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
     setIsLoadingResponses(false);
   };
 
-  // --- 2. Use Effect (Call Functions) ---
-
   useEffect(() => {
     if (activeTab === 'RESPONSES') fetchResponses();
     if (activeTab === 'PROJECTS') fetchProjectsList();
   }, [activeTab]);
 
-  // --- 3. Other Handlers ---
+  // --- Handlers ---
+
+  // 编辑已有项目 (撤回后编辑)
+  const handleEditProject = (project: any) => {
+    setSurveyTitle(project.title);
+    setSurveySubtitle(project.subtitle || '');
+    setSurveyDescription(project.description || '');
+    setSurveyLanguage(project.language || 'en');
+    setNodes(project.nodes || []);
+    setCurrentRound(project.round || 1);
+    setTotalRounds(project.total_rounds || 3);
+    setDeadlineDate(project.deadline ? new Date(project.deadline).toISOString().split('T')[0] : '');
+    setEditingProjectId(project.id);
+    setActiveTab('BUILDER');
+  };
 
   const saveProject = async () => {
     setIsSaving(true);
     
-    // 生成一个随机ID
-    const newId = crypto.randomUUID();
-
-    const newProject = {
-       id: newId,
+    const projectPayload = {
        title: surveyTitle,
        subtitle: surveySubtitle,
        description: surveyDescription,
        nodes: nodes,
-       round: 1,
-       total_rounds: 3,
-       status: 'PUBLISHED',
-       deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-       language: surveyLanguage
+       round: currentRound,
+       total_rounds: totalRounds,
+       deadline: new Date(deadlineDate).toISOString(),
+       language: surveyLanguage,
+       status: 'PUBLISHED' // Editing essentially re-publishes or updates draft
     };
 
-    const { error } = await supabase.from('projects').insert([newProject]);
+    let error;
+
+    if (editingProjectId) {
+      // Update existing project
+      const { error: updateError } = await supabase
+        .from('projects')
+        .update(projectPayload)
+        .eq('id', editingProjectId);
+      error = updateError;
+    } else {
+      // Create new project
+      const { error: insertError } = await supabase
+        .from('projects')
+        .insert([{ ...projectPayload, id: crypto.randomUUID() }]);
+      error = insertError;
+    }
 
     setIsSaving(false);
 
@@ -269,10 +364,11 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
        console.error('Save failed:', error.message);
        alert(`Error saving: ${error.message}`);
     } else {
-       alert('Project PUBLISHED successfully!');
-       // Reset Form
+       alert(editingProjectId ? 'Project UPDATED successfully!' : 'Project PUBLISHED successfully!');
+       // Reset Form if it was a new project, or keep it if editing? Let's reset to clear state.
        setNodes([]);
        setSurveyTitle('New Consensus Round');
+       setEditingProjectId(null);
        if (onProjectPublished) onProjectPublished();
     }
   };
@@ -300,7 +396,6 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
      setUpdatingId(null);
   };
 
-  // Node Actions
   const handleUpdateNode = (id: string, field: keyof SurveyNode, val: any) => setNodes(prev => updateNodeInTree(prev, id, (n) => ({ ...n, [field]: val })));
   const handleAddRootNode = (type: NodeType) => {
     const newNode: SurveyNode = {
@@ -326,10 +421,10 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
       <div className="w-64 bg-academic-900 text-academic-100 flex flex-col shadow-xl z-10 sticky top-0 h-screen">
         <div className="p-6 border-b border-academic-800">
           <div className="font-bold text-lg tracking-wider text-white">ADMIN CONSOLE</div>
-          <div className="text-xs text-academic-400 mt-1">Delphi Manager v2.0</div>
+          <div className="text-xs text-academic-400 mt-1">Delphi Manager v2.1</div>
         </div>
         <nav className="flex-1 p-4 space-y-2">
-          <button onClick={() => setActiveTab('BUILDER')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-md transition-all ${activeTab === 'BUILDER' ? 'bg-primary-700 text-white' : 'hover:bg-academic-800 text-academic-400'}`}>
+          <button onClick={() => {setActiveTab('BUILDER'); setEditingProjectId(null);}} className={`w-full flex items-center gap-3 px-4 py-3 rounded-md transition-all ${activeTab === 'BUILDER' ? 'bg-primary-700 text-white' : 'hover:bg-academic-800 text-academic-400'}`}>
             <FileText className="w-5 h-5" /> <span className="font-medium">Form Builder</span>
           </button>
           <button onClick={() => setActiveTab('PROJECTS')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-md transition-all ${activeTab === 'PROJECTS' ? 'bg-primary-700 text-white' : 'hover:bg-academic-800 text-academic-400'}`}>
@@ -345,38 +440,77 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
       <div className="flex-1 overflow-y-auto h-screen">
         {activeTab === 'BUILDER' && (
           <div className="max-w-4xl mx-auto py-12 px-8">
+            
+            {/* Preview Modal */}
+            {showPreview && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-academic-900/60 backdrop-blur-sm">
+                <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+                  <div className="p-4 border-b flex justify-between items-center bg-academic-50 rounded-t-xl">
+                    <h3 className="font-bold text-academic-800 flex items-center gap-2"><Eye className="w-4 h-4"/> Preview: Expert View</h3>
+                    <button onClick={() => setShowPreview(false)} className="p-1 hover:bg-gray-200 rounded"><X className="w-5 h-5"/></button>
+                  </div>
+                  <div className="p-8 overflow-y-auto">
+                     <h1 className="text-2xl font-bold mb-2">{surveyTitle}</h1>
+                     <p className="text-academic-600 mb-6">{surveyDescription}</p>
+                     {nodes.map((node, idx) => <PreviewNodeRenderer key={node.id} node={node} level={`${idx + 1}`} />)}
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="bg-white rounded-xl shadow-sm border border-academic-200 p-8 mb-8 sticky top-4 z-20">
               <div className="flex justify-between items-start mb-6">
                 <div>
-                  <h3 className="text-xs font-bold text-academic-400 uppercase tracking-widest">Survey Configuration</h3>
+                  <h3 className="text-xs font-bold text-academic-400 uppercase tracking-widest">Configuration</h3>
                   <div className="flex items-center gap-2 mt-1">
-                      <span className="w-2 h-2 rounded-full bg-yellow-400"></span>
-                      <span className="text-xs font-bold text-academic-500">DRAFT MODE</span>
+                      <span className={`w-2 h-2 rounded-full ${editingProjectId ? 'bg-blue-500' : 'bg-green-500'}`}></span>
+                      <span className="text-xs font-bold text-academic-500">{editingProjectId ? 'EDITING MODE' : 'NEW PROJECT'}</span>
                   </div>
                 </div>
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3">
                    <div className="flex bg-academic-100 rounded-md p-1">
-                      <button onClick={() => setSurveyLanguage('en')} className={`px-3 py-1 text-xs font-bold rounded ${surveyLanguage === 'en' ? 'bg-white text-primary-700 shadow-sm' : 'text-academic-500'}`}>English</button>
-                      <button onClick={() => setSurveyLanguage('cn')} className={`px-3 py-1 text-xs font-bold rounded ${surveyLanguage === 'cn' ? 'bg-white text-primary-700 shadow-sm' : 'text-academic-500'}`}>中文</button>
+                      <button onClick={() => setSurveyLanguage('en')} className={`px-3 py-1 text-xs font-bold rounded ${surveyLanguage === 'en' ? 'bg-white text-primary-700 shadow-sm' : 'text-academic-500'}`}>EN</button>
+                      <button onClick={() => setSurveyLanguage('cn')} className={`px-3 py-1 text-xs font-bold rounded ${surveyLanguage === 'cn' ? 'bg-white text-primary-700 shadow-sm' : 'text-academic-500'}`}>CN</button>
                    </div>
+                   <Button variant="outline" onClick={() => setShowPreview(true)} className="gap-2">
+                     <Eye className="w-4 h-4"/> Preview
+                   </Button>
                    <Button size="lg" onClick={saveProject} disabled={isSaving} className="flex items-center gap-2 shadow-lg shadow-primary-900/20">
-                      {isSaving ? <Loader2 className="w-5 h-5 animate-spin"/> : <Save className="w-5 h-5" />} PUBLISH
+                      {isSaving ? <Loader2 className="w-5 h-5 animate-spin"/> : <Save className="w-5 h-5" />} 
+                      {editingProjectId ? 'UPDATE PROJECT' : 'PUBLISH'}
                    </Button>
                 </div>
               </div>
+              
+              {/* Round & Deadline Config */}
+              <div className="grid grid-cols-3 gap-4 mb-6 p-4 bg-academic-50 rounded-lg border border-academic-100">
+                 <div>
+                    <label className="block text-xs font-bold text-academic-500 uppercase mb-1">Current Round</label>
+                    <div className="flex items-center bg-white border border-academic-200 rounded px-2">
+                       <Hash className="w-4 h-4 text-academic-400 mr-2"/>
+                       <input type="number" min="1" value={currentRound} onChange={e => setCurrentRound(parseInt(e.target.value))} className="w-full py-1.5 outline-none text-sm"/>
+                    </div>
+                 </div>
+                 <div>
+                    <label className="block text-xs font-bold text-academic-500 uppercase mb-1">Total Rounds</label>
+                    <div className="flex items-center bg-white border border-academic-200 rounded px-2">
+                       <BarChart3 className="w-4 h-4 text-academic-400 mr-2"/>
+                       <input type="number" min="1" value={totalRounds} onChange={e => setTotalRounds(parseInt(e.target.value))} className="w-full py-1.5 outline-none text-sm"/>
+                    </div>
+                 </div>
+                 <div>
+                    <label className="block text-xs font-bold text-academic-500 uppercase mb-1">Deadline</label>
+                    <div className="flex items-center bg-white border border-academic-200 rounded px-2">
+                       <Calendar className="w-4 h-4 text-academic-400 mr-2"/>
+                       <input type="date" value={deadlineDate} onChange={e => setDeadlineDate(e.target.value)} className="w-full py-1.5 outline-none text-sm"/>
+                    </div>
+                 </div>
+              </div>
+
               <div className="space-y-4">
-                 <div>
-                    <label className="block text-xs font-medium text-academic-500 mb-1">Title</label>
-                    <input value={surveyTitle} onChange={(e) => setSurveyTitle(e.target.value)} className="w-full text-2xl font-bold bg-transparent border-b border-academic-200 focus:outline-none" placeholder="Round Title" />
-                 </div>
-                 <div>
-                    <label className="block text-xs font-medium text-academic-500 mb-1">Subtitle</label>
-                    <input value={surveySubtitle} onChange={(e) => setSurveySubtitle(e.target.value)} className="w-full text-lg bg-transparent border-b border-academic-200 focus:outline-none" placeholder="Subtitle" />
-                 </div>
-                 <div>
-                    <label className="block text-xs font-medium text-academic-500 mb-1">Description</label>
-                    <textarea value={surveyDescription} onChange={(e) => setSurveyDescription(e.target.value)} className="w-full text-sm bg-academic-50 border border-academic-200 rounded p-2 focus:outline-none" placeholder="Description..." />
-                 </div>
+                 <input value={surveyTitle} onChange={(e) => setSurveyTitle(e.target.value)} className="w-full text-2xl font-bold bg-transparent border-b border-academic-200 focus:outline-none placeholder-academic-300" placeholder="Round Title" />
+                 <input value={surveySubtitle} onChange={(e) => setSurveySubtitle(e.target.value)} className="w-full text-lg bg-transparent border-b border-academic-200 focus:outline-none placeholder-academic-300" placeholder="Subtitle" />
+                 <textarea value={surveyDescription} onChange={(e) => setSurveyDescription(e.target.value)} className="w-full text-sm bg-academic-50 border border-academic-200 rounded p-2 focus:outline-none min-h-[60px]" placeholder="Introduction/Description..." />
               </div>
             </div>
 
@@ -401,7 +535,7 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
                     <thead className="bg-academic-50 border-b border-academic-200">
                        <tr>
                           <th className="px-6 py-4 text-xs font-bold text-academic-500 uppercase">Title</th>
-                          <th className="px-6 py-4 text-xs font-bold text-academic-500 uppercase">Lang</th>
+                          <th className="px-6 py-4 text-xs font-bold text-academic-500 uppercase">Round</th>
                           <th className="px-6 py-4 text-xs font-bold text-academic-500 uppercase">Status</th>
                           <th className="px-6 py-4 text-xs font-bold text-academic-500 uppercase">Deadline</th>
                           <th className="px-6 py-4 text-xs font-bold text-academic-500 uppercase text-right">Actions</th>
@@ -410,13 +544,21 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
                     <tbody className="divide-y divide-academic-100">
                        {existingProjects.map((proj) => (
                           <tr key={proj.id} className="hover:bg-academic-50">
-                             <td className="px-6 py-4 font-medium">{proj.title}</td>
-                             <td className="px-6 py-4 text-xs uppercase">{proj.language}</td>
+                             <td className="px-6 py-4 font-medium">
+                                {proj.title}
+                                <div className="text-xs text-academic-400">{proj.subtitle}</div>
+                             </td>
+                             <td className="px-6 py-4 text-sm">{proj.round} / {proj.totalRounds}</td>
                              <td className="px-6 py-4"><span className={`px-2 py-0.5 rounded text-xs font-bold ${proj.status === 'PUBLISHED' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{proj.status}</span></td>
                              <td className="px-6 py-4">
                                 <input type="date" className="text-sm border rounded px-2 py-1" value={proj.deadline ? new Date(proj.deadline).toISOString().split('T')[0] : ''} onChange={(e) => handleDeadlineChange(proj.id, e.target.value)} disabled={updatingId === proj.id} />
                              </td>
-                             <td className="px-6 py-4 text-right">
+                             <td className="px-6 py-4 text-right space-x-2">
+                                {proj.status === 'DRAFT' && (
+                                   <Button size="sm" variant="secondary" onClick={() => handleEditProject(proj)} className="text-xs">
+                                      <Edit className="w-3 h-3 mr-1"/> Edit
+                                   </Button>
+                                )}
                                 <Button size="sm" variant="outline" onClick={() => handleStatusChange(proj.id, proj.status)} disabled={updatingId === proj.id}>
                                    {updatingId === proj.id ? <Loader2 className="w-3 h-3 animate-spin"/> : (proj.status === 'PUBLISHED' ? <StopCircle className="w-3 h-3 mr-1"/> : <PlayCircle className="w-3 h-3 mr-1"/>)}
                                    {proj.status === 'PUBLISHED' ? 'Retract' : 'Publish'}
