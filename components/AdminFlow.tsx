@@ -1,0 +1,470 @@
+import React, { useState, useEffect } from 'react';
+import { Project, QuestionType, SurveyNode, NodeType } from '../types';
+import { Plus, Trash2, GripVertical, Save, Settings, FileText, BarChart3, Eye, Loader2, FolderPlus, FolderOpen, Image as ImageIcon, ChevronUp, Type, StopCircle, PlayCircle } from 'lucide-react';
+import { Button } from './ui/Button';
+import { supabase } from '../lib/supabaseClient';
+
+// --- Recursive Builder Node Component ---
+const updateNodeInTree = (nodes: SurveyNode[], nodeId: string, updateFn: (n: SurveyNode) => SurveyNode): SurveyNode[] => {
+  return nodes.map(node => {
+    if (node.id === nodeId) return updateFn(node);
+    if (node.children) return { ...node, children: updateNodeInTree(node.children, nodeId, updateFn) };
+    return node;
+  });
+};
+
+const deleteNodeFromTree = (nodes: SurveyNode[], nodeId: string): SurveyNode[] => {
+  return nodes.filter(node => node.id !== nodeId).map(node => ({
+    ...node,
+    children: deleteNodeFromTree(node.children, nodeId)
+  }));
+};
+
+const addChildToNode = (nodes: SurveyNode[], parentId: string, newNode: SurveyNode): SurveyNode[] => {
+  return nodes.map(node => {
+    if (node.id === parentId) return { ...node, children: [...node.children, newNode] };
+    if (node.children) return { ...node, children: addChildToNode(node.children, parentId, newNode) };
+    return node;
+  });
+};
+
+// 独立的组件渲染器
+const BuilderNodeRenderer: React.FC<{
+  node: SurveyNode;
+  level: string;
+  onUpdate: (id: string, field: keyof SurveyNode, val: any) => void;
+  onAddChild: (parentId: string, type: NodeType) => void;
+  onDelete: (id: string) => void;
+}> = ({ node, level, onUpdate, onAddChild, onDelete }) => {
+  const [showDetails, setShowDetails] = useState(false);
+  const isSection = node.type === NodeType.SECTION;
+  const isText = node.type === NodeType.TEXT;
+
+  return (
+    <div className={`
+      relative border border-academic-200 rounded-lg p-4 mb-4 transition-all
+      ${isSection ? 'bg-academic-50 ml-4' : 'bg-white ml-8 shadow-sm hover:shadow-md'}
+      ${level.length === 1 ? '!ml-0' : ''}
+    `}>
+      <div className="absolute -left-4 top-0 bottom-0 w-px bg-academic-200" />
+      <div className="absolute -left-4 top-6 w-4 h-px bg-academic-200" />
+
+      <div className="flex gap-3">
+        <div className="mt-2 text-academic-300 cursor-move"><GripVertical className="w-4 h-4" /></div>
+        <div className="flex-1 space-y-3">
+          <div className="flex justify-between items-start gap-4">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs font-mono text-academic-400 bg-academic-100 px-1.5 py-0.5 rounded">{level}</span>
+                {isSection ? (
+                  <span className="text-xs font-bold text-academic-600 uppercase flex items-center gap-1"><FolderOpen className="w-3 h-3"/> Section</span>
+                ) : isText ? (
+                  <span className="text-xs font-bold text-academic-600 uppercase flex items-center gap-1"><Type className="w-3 h-3"/> Text / Media</span>
+                ) : (
+                  <span className="text-xs font-bold text-primary-600 uppercase">Question</span>
+                )}
+              </div>
+              <input 
+                value={node.title}
+                onChange={(e) => onUpdate(node.id, 'title', e.target.value)}
+                className={`w-full bg-transparent border-b border-transparent focus:border-academic-300 focus:outline-none transition-all placeholder-academic-300 ${isSection ? 'text-lg font-bold text-academic-800' : 'text-base font-medium text-academic-900'}`}
+                placeholder={isSection ? "Section Title" : isText ? "Header (Optional)" : "Question Text"}
+              />
+            </div>
+            <div className="flex items-center gap-1">
+              <button onClick={() => setShowDetails(!showDetails)} className={`p-1.5 rounded transition-colors ${showDetails ? 'text-primary-600 bg-primary-50' : 'text-academic-400 hover:bg-academic-100'}`}>
+                {showDetails ? <ChevronUp className="w-4 h-4"/> : <ImageIcon className="w-4 h-4"/>}
+              </button>
+              <button onClick={() => onDelete(node.id)} className="p-1.5 text-academic-400 hover:text-red-500 hover:bg-red-50 rounded"><Trash2 className="w-4 h-4" /></button>
+            </div>
+          </div>
+
+          {isText && (
+             <div className="mt-2">
+                <textarea 
+                  value={node.description || ''}
+                  onChange={(e) => onUpdate(node.id, 'description', e.target.value)}
+                  className="w-full text-sm p-3 border border-academic-200 rounded focus:ring-1 focus:ring-primary-500 outline-none min-h-[80px]"
+                  placeholder="Enter content text here..."
+                />
+             </div>
+          )}
+
+          {showDetails && (
+            <div className="p-4 bg-academic-100/50 rounded-lg border border-academic-200 space-y-4 animate-in slide-in-from-top-2">
+               {!isText && (
+                 <div>
+                    <label className="block text-xs font-bold text-academic-500 uppercase tracking-wider mb-1">Context / Description</label>
+                    <textarea 
+                      value={node.description || ''}
+                      onChange={(e) => onUpdate(node.id, 'description', e.target.value)}
+                      className="w-full text-sm p-2 border border-academic-200 rounded outline-none" rows={3}
+                    />
+                 </div>
+               )}
+               <div>
+                  <label className="block text-xs font-bold text-academic-500 uppercase tracking-wider mb-1">Image URL</label>
+                  <input 
+                     type="text"
+                     value={node.imageUrl || ''}
+                     onChange={(e) => onUpdate(node.id, 'imageUrl', e.target.value)}
+                     className="w-full text-xs p-2 border border-academic-200 rounded outline-none"
+                     placeholder="https://..."
+                  />
+               </div>
+            </div>
+          )}
+
+          {!isSection && !isText && (
+             <div className="pl-2 border-l-2 border-academic-100 space-y-3">
+                <div className="flex items-center gap-2">
+                   <select 
+                      value={node.questionType} 
+                      onChange={(e) => onUpdate(node.id, 'questionType', e.target.value)}
+                      className="text-sm border border-academic-200 rounded px-2 py-1 bg-white"
+                   >
+                      <option value={QuestionType.LIKERT_SCALE}>Likert Scale</option>
+                      <option value={QuestionType.SINGLE_CHOICE}>Multiple Choice</option>
+                      <option value={QuestionType.TEXT_AREA}>Open Text</option>
+                   </select>
+                </div>
+                {node.questionType === QuestionType.LIKERT_SCALE && (
+                   <div className="flex gap-2">
+                      <Button size="sm" variant={node.likertScale === 5 ? 'primary' : 'outline'} onClick={() => onUpdate(node.id, 'likertScale', 5)}>5-Point</Button>
+                      <Button size="sm" variant={node.likertScale === 7 ? 'primary' : 'outline'} onClick={() => onUpdate(node.id, 'likertScale', 7)}>7-Point</Button>
+                   </div>
+                )}
+                {node.questionType === QuestionType.SINGLE_CHOICE && (
+                   <div className="space-y-2">
+                      {node.options?.map((opt, idx) => (
+                         <input 
+                            key={opt.id}
+                            value={opt.label}
+                            onChange={(e) => {
+                               const newOpts = [...(node.options || [])];
+                               newOpts[idx].label = e.target.value;
+                               onUpdate(node.id, 'options', newOpts);
+                            }}
+                            className="block w-full text-sm border border-academic-200 rounded px-2 py-1" 
+                         />
+                      ))}
+                      <button className="text-xs text-primary-600 font-medium hover:underline" onClick={() => {
+                         const newOpts = [...(node.options || []), { id: Date.now().toString(), label: 'New Option' }];
+                         onUpdate(node.id, 'options', newOpts);
+                      }}>+ Add Option</button>
+                   </div>
+                )}
+             </div>
+          )}
+
+          {isSection && (
+             <div className="flex gap-2 pt-2">
+                <Button size="sm" variant="secondary" onClick={() => onAddChild(node.id, NodeType.SECTION)} className="text-xs h-7 px-2"><FolderPlus className="w-3 h-3 mr-1" /> Sub-Section</Button>
+                <Button size="sm" variant="secondary" onClick={() => onAddChild(node.id, NodeType.QUESTION)} className="text-xs h-7 px-2"><Plus className="w-3 h-3 mr-1" /> Question</Button>
+                <Button size="sm" variant="secondary" onClick={() => onAddChild(node.id, NodeType.TEXT)} className="text-xs h-7 px-2"><Type className="w-3 h-3 mr-1" /> Text</Button>
+             </div>
+          )}
+        </div>
+      </div>
+      {isSection && node.children.length > 0 && (
+         <div className="mt-4">
+            {node.children.map((child, idx) => (
+               <BuilderNodeRenderer key={child.id} node={child} level={`${level}.${idx + 1}`} onUpdate={onUpdate} onAddChild={onAddChild} onDelete={onDelete} />
+            ))}
+         </div>
+      )}
+    </div>
+  );
+};
+
+// --- MAIN ADMIN COMPONENT ---
+interface AdminFlowProps {
+  onProjectPublished?: () => void;
+}
+
+export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
+  const [activeTab, setActiveTab] = useState<'BUILDER' | 'PROJECTS' | 'RESPONSES'>('BUILDER');
+  
+  // Builder State
+  const [surveyTitle, setSurveyTitle] = useState('New Consensus Round');
+  const [surveySubtitle, setSurveySubtitle] = useState('');
+  const [surveyDescription, setSurveyDescription] = useState('');
+  const [surveyLanguage, setSurveyLanguage] = useState<'en' | 'cn'>('en');
+  const [nodes, setNodes] = useState<SurveyNode[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Projects View State
+  const [existingProjects, setExistingProjects] = useState<Project[]>([]);
+  const [isLoadingProjects, setIsLoadingProjects] = useState(false);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+
+  // Response View State
+  const [responses, setResponses] = useState<any[]>([]);
+  const [isLoadingResponses, setIsLoadingResponses] = useState(false);
+  const [selectedResponse, setSelectedResponse] = useState<any>(null);
+
+  // --- 1. Define Functions FIRST (before useEffect) ---
+
+  const fetchProjectsList = async () => {
+     setIsLoadingProjects(true);
+     const { data, error } = await supabase.from('projects').select('*').order('created_at', { ascending: false });
+     if (error) console.error('Fetch error:', error);
+     else if (data) {
+        setExistingProjects(data.map((p: any) => ({ ...p, totalRounds: p.total_rounds })));
+     }
+     setIsLoadingProjects(false);
+  };
+
+  const fetchResponses = async () => {
+    setIsLoadingResponses(true);
+    const { data: responseData, error } = await supabase.from('responses').select('*, experts(name, institution), projects(title)');
+    if (error) console.error('Response fetch error:', error);
+    else if (responseData) {
+      const formatted = responseData.map((r: any) => ({
+        id: r.id,
+        name: r.experts?.name || 'Unknown',
+        institution: r.experts?.institution || 'Unknown',
+        status: 'SUBMITTED',
+        title: r.projects?.title || 'Untitled Project',
+        details: r.answers
+      }));
+      setResponses(formatted);
+    }
+    setIsLoadingResponses(false);
+  };
+
+  // --- 2. Use Effect (Call Functions) ---
+
+  useEffect(() => {
+    if (activeTab === 'RESPONSES') fetchResponses();
+    if (activeTab === 'PROJECTS') fetchProjectsList();
+  }, [activeTab]);
+
+  // --- 3. Other Handlers ---
+
+  const saveProject = async () => {
+    setIsSaving(true);
+    
+    // 生成一个随机ID
+    const newId = crypto.randomUUID();
+
+    const newProject = {
+       id: newId,
+       title: surveyTitle,
+       subtitle: surveySubtitle,
+       description: surveyDescription,
+       nodes: nodes,
+       round: 1,
+       total_rounds: 3,
+       status: 'PUBLISHED',
+       deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+       language: surveyLanguage
+    };
+
+    const { error } = await supabase.from('projects').insert([newProject]);
+
+    setIsSaving(false);
+
+    if (error) {
+       console.error('Save failed:', error.message);
+       alert(`Error saving: ${error.message}`);
+    } else {
+       alert('Project PUBLISHED successfully!');
+       // Reset Form
+       setNodes([]);
+       setSurveyTitle('New Consensus Round');
+       if (onProjectPublished) onProjectPublished();
+    }
+  };
+
+  const handleStatusChange = async (projectId: string, currentStatus: string) => {
+     const newStatus = currentStatus === 'PUBLISHED' ? 'DRAFT' : 'PUBLISHED';
+     setUpdatingId(projectId);
+     const { error } = await supabase.from('projects').update({ status: newStatus }).eq('id', projectId);
+     if (!error) {
+        setExistingProjects(prev => prev.map(p => p.id === projectId ? { ...p, status: newStatus as any } : p));
+        if (onProjectPublished) onProjectPublished();
+     }
+     setUpdatingId(null);
+  };
+
+  const handleDeadlineChange = async (projectId: string, newDate: string) => {
+     if (!newDate) return;
+     const isoDate = new Date(newDate).toISOString();
+     setUpdatingId(projectId);
+     const { error } = await supabase.from('projects').update({ deadline: isoDate }).eq('id', projectId);
+     if (!error) {
+        setExistingProjects(prev => prev.map(p => p.id === projectId ? { ...p, deadline: isoDate } : p));
+        if (onProjectPublished) onProjectPublished();
+     }
+     setUpdatingId(null);
+  };
+
+  // Node Actions
+  const handleUpdateNode = (id: string, field: keyof SurveyNode, val: any) => setNodes(prev => updateNodeInTree(prev, id, (n) => ({ ...n, [field]: val })));
+  const handleAddRootNode = (type: NodeType) => {
+    const newNode: SurveyNode = {
+      id: Math.random().toString(36).substr(2, 9),
+      type, title: '', children: [],
+      ...(type === NodeType.QUESTION ? { questionType: QuestionType.LIKERT_SCALE, required: true, likertScale: 5 } : {})
+    };
+    setNodes([...nodes, newNode]);
+  };
+  const handleAddChildNode = (parentId: string, type: NodeType) => {
+     const newNode: SurveyNode = {
+      id: Math.random().toString(36).substr(2, 9),
+      type, title: '', children: [],
+      ...(type === NodeType.QUESTION ? { questionType: QuestionType.LIKERT_SCALE, required: true, likertScale: 5, options: [{id: '1', label: 'Option 1'}] } : {})
+    };
+    setNodes(prev => addChildToNode(prev, parentId, newNode));
+  };
+  const handleDeleteNode = (id: string) => setNodes(prev => deleteNodeFromTree(prev, id));
+
+  return (
+    <div className="flex min-h-screen bg-academic-50">
+      {/* Sidebar */}
+      <div className="w-64 bg-academic-900 text-academic-100 flex flex-col shadow-xl z-10 sticky top-0 h-screen">
+        <div className="p-6 border-b border-academic-800">
+          <div className="font-bold text-lg tracking-wider text-white">ADMIN CONSOLE</div>
+          <div className="text-xs text-academic-400 mt-1">Delphi Manager v2.0</div>
+        </div>
+        <nav className="flex-1 p-4 space-y-2">
+          <button onClick={() => setActiveTab('BUILDER')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-md transition-all ${activeTab === 'BUILDER' ? 'bg-primary-700 text-white' : 'hover:bg-academic-800 text-academic-400'}`}>
+            <FileText className="w-5 h-5" /> <span className="font-medium">Form Builder</span>
+          </button>
+          <button onClick={() => setActiveTab('PROJECTS')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-md transition-all ${activeTab === 'PROJECTS' ? 'bg-primary-700 text-white' : 'hover:bg-academic-800 text-academic-400'}`}>
+            <FolderOpen className="w-5 h-5" /> <span className="font-medium">Manage Projects</span>
+          </button>
+          <button onClick={() => setActiveTab('RESPONSES')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-md transition-all ${activeTab === 'RESPONSES' ? 'bg-primary-700 text-white' : 'hover:bg-academic-800 text-academic-400'}`}>
+            <BarChart3 className="w-5 h-5" /> <span className="font-medium">Responses</span>
+          </button>
+        </nav>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto h-screen">
+        {activeTab === 'BUILDER' && (
+          <div className="max-w-4xl mx-auto py-12 px-8">
+            <div className="bg-white rounded-xl shadow-sm border border-academic-200 p-8 mb-8 sticky top-4 z-20">
+              <div className="flex justify-between items-start mb-6">
+                <div>
+                  <h3 className="text-xs font-bold text-academic-400 uppercase tracking-widest">Survey Configuration</h3>
+                  <div className="flex items-center gap-2 mt-1">
+                      <span className="w-2 h-2 rounded-full bg-yellow-400"></span>
+                      <span className="text-xs font-bold text-academic-500">DRAFT MODE</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                   <div className="flex bg-academic-100 rounded-md p-1">
+                      <button onClick={() => setSurveyLanguage('en')} className={`px-3 py-1 text-xs font-bold rounded ${surveyLanguage === 'en' ? 'bg-white text-primary-700 shadow-sm' : 'text-academic-500'}`}>English</button>
+                      <button onClick={() => setSurveyLanguage('cn')} className={`px-3 py-1 text-xs font-bold rounded ${surveyLanguage === 'cn' ? 'bg-white text-primary-700 shadow-sm' : 'text-academic-500'}`}>中文</button>
+                   </div>
+                   <Button size="lg" onClick={saveProject} disabled={isSaving} className="flex items-center gap-2 shadow-lg shadow-primary-900/20">
+                      {isSaving ? <Loader2 className="w-5 h-5 animate-spin"/> : <Save className="w-5 h-5" />} PUBLISH
+                   </Button>
+                </div>
+              </div>
+              <div className="space-y-4">
+                 <div>
+                    <label className="block text-xs font-medium text-academic-500 mb-1">Title</label>
+                    <input value={surveyTitle} onChange={(e) => setSurveyTitle(e.target.value)} className="w-full text-2xl font-bold bg-transparent border-b border-academic-200 focus:outline-none" placeholder="Round Title" />
+                 </div>
+                 <div>
+                    <label className="block text-xs font-medium text-academic-500 mb-1">Subtitle</label>
+                    <input value={surveySubtitle} onChange={(e) => setSurveySubtitle(e.target.value)} className="w-full text-lg bg-transparent border-b border-academic-200 focus:outline-none" placeholder="Subtitle" />
+                 </div>
+                 <div>
+                    <label className="block text-xs font-medium text-academic-500 mb-1">Description</label>
+                    <textarea value={surveyDescription} onChange={(e) => setSurveyDescription(e.target.value)} className="w-full text-sm bg-academic-50 border border-academic-200 rounded p-2 focus:outline-none" placeholder="Description..." />
+                 </div>
+              </div>
+            </div>
+
+            <div className="space-y-6 pb-32">
+               {nodes.length === 0 && <div className="text-center py-16 border-2 border-dashed border-academic-300 rounded-xl bg-academic-50/50 text-academic-400">Add a Section or Question to begin.</div>}
+               {nodes.map((node, idx) => <BuilderNodeRenderer key={node.id} node={node} level={`${idx + 1}`} onUpdate={handleUpdateNode} onAddChild={handleAddChildNode} onDelete={handleDeleteNode} />)}
+               
+               <div className="flex gap-4 justify-center mt-8 border-t border-academic-200 pt-8">
+                  <Button variant="secondary" onClick={() => handleAddRootNode(NodeType.SECTION)}><FolderPlus className="w-5 h-5 mr-2"/> Add Section</Button>
+                  <Button variant="outline" onClick={() => handleAddRootNode(NodeType.QUESTION)}><Plus className="w-5 h-5 mr-2"/> Add Question</Button>
+                  <Button variant="outline" onClick={() => handleAddRootNode(NodeType.TEXT)}><Type className="w-5 h-5 mr-2"/> Add Text</Button>
+               </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'PROJECTS' && (
+           <div className="max-w-6xl mx-auto py-12 px-8">
+              <h1 className="text-2xl font-bold text-academic-900 mb-6">Manage Projects</h1>
+              <div className="bg-white rounded-xl shadow-sm border border-academic-200 overflow-hidden">
+                 <table className="w-full text-left">
+                    <thead className="bg-academic-50 border-b border-academic-200">
+                       <tr>
+                          <th className="px-6 py-4 text-xs font-bold text-academic-500 uppercase">Title</th>
+                          <th className="px-6 py-4 text-xs font-bold text-academic-500 uppercase">Lang</th>
+                          <th className="px-6 py-4 text-xs font-bold text-academic-500 uppercase">Status</th>
+                          <th className="px-6 py-4 text-xs font-bold text-academic-500 uppercase">Deadline</th>
+                          <th className="px-6 py-4 text-xs font-bold text-academic-500 uppercase text-right">Actions</th>
+                       </tr>
+                    </thead>
+                    <tbody className="divide-y divide-academic-100">
+                       {existingProjects.map((proj) => (
+                          <tr key={proj.id} className="hover:bg-academic-50">
+                             <td className="px-6 py-4 font-medium">{proj.title}</td>
+                             <td className="px-6 py-4 text-xs uppercase">{proj.language}</td>
+                             <td className="px-6 py-4"><span className={`px-2 py-0.5 rounded text-xs font-bold ${proj.status === 'PUBLISHED' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{proj.status}</span></td>
+                             <td className="px-6 py-4">
+                                <input type="date" className="text-sm border rounded px-2 py-1" value={proj.deadline ? new Date(proj.deadline).toISOString().split('T')[0] : ''} onChange={(e) => handleDeadlineChange(proj.id, e.target.value)} disabled={updatingId === proj.id} />
+                             </td>
+                             <td className="px-6 py-4 text-right">
+                                <Button size="sm" variant="outline" onClick={() => handleStatusChange(proj.id, proj.status)} disabled={updatingId === proj.id}>
+                                   {updatingId === proj.id ? <Loader2 className="w-3 h-3 animate-spin"/> : (proj.status === 'PUBLISHED' ? <StopCircle className="w-3 h-3 mr-1"/> : <PlayCircle className="w-3 h-3 mr-1"/>)}
+                                   {proj.status === 'PUBLISHED' ? 'Retract' : 'Publish'}
+                                </Button>
+                             </td>
+                          </tr>
+                       ))}
+                    </tbody>
+                 </table>
+              </div>
+           </div>
+        )}
+
+        {activeTab === 'RESPONSES' && (
+           <div className="max-w-6xl mx-auto py-12 px-8">
+              <h1 className="text-2xl font-bold text-academic-900 mb-6">Expert Responses</h1>
+              {selectedResponse && (
+                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-academic-900/40 backdrop-blur-sm">
+                    <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+                       <div className="p-6 border-b flex justify-between">
+                          <h2 className="text-xl font-bold">{selectedResponse.name}</h2>
+                          <button onClick={() => setSelectedResponse(null)}><Settings className="w-5 h-5 rotate-45"/></button>
+                       </div>
+                       <div className="p-8 overflow-y-auto bg-gray-50 flex-1">
+                          <pre className="text-xs bg-white p-4 rounded border overflow-auto">{JSON.stringify(selectedResponse.details, null, 2)}</pre>
+                       </div>
+                    </div>
+                 </div>
+              )}
+              <div className="bg-white rounded-xl shadow-sm border border-academic-200">
+                 <table className="w-full text-left">
+                    <thead className="bg-academic-50 border-b">
+                       <tr><th className="px-6 py-4 text-xs font-bold text-academic-500 uppercase">Name</th><th className="px-6 py-4 text-xs font-bold text-academic-500 uppercase">Project</th><th className="px-6 py-4 text-xs font-bold text-academic-500 uppercase text-right">View</th></tr>
+                    </thead>
+                    <tbody className="divide-y divide-academic-100">
+                       {responses.map((resp) => (
+                          <tr key={resp.id} className="hover:bg-academic-50">
+                             <td className="px-6 py-4">{resp.name} <span className="text-xs text-gray-400 block">{resp.institution}</span></td>
+                             <td className="px-6 py-4 text-sm">{resp.title}</td>
+                             <td className="px-6 py-4 text-right"><Button size="sm" variant="outline" onClick={() => setSelectedResponse(resp)}><Eye className="w-3 h-3 mr-1"/> View</Button></td>
+                          </tr>
+                       ))}
+                    </tbody>
+                 </table>
+              </div>
+           </div>
+        )}
+      </div>
+    </div>
+  );
+};
