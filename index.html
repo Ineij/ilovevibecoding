@@ -3,54 +3,78 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    
-    <link rel="icon" type="image/png" href="/logo.png" />
-    
     <title>Delphi Consensus Platform</title>
-    
     <script src="https://cdn.tailwindcss.com"></script>
-    
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    
     <script>
       tailwind.config = {
         theme: {
           extend: {
-            fontFamily: { sans: ['Inter', 'sans-serif'] },
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+            },
             colors: {
               academic: {
-                50: '#f8fafc', 100: '#f1f5f9', 200: '#e2e8f0', 300: '#cbd5e1',
-                400: '#94a3b8', 500: '#64748b', 600: '#475569', 700: '#334155',
-                800: '#1e293b', 900: '#0f172a',
+                50: '#f8fafc',
+                100: '#f1f5f9',
+                200: '#e2e8f0',
+                300: '#cbd5e1',
+                400: '#94a3b8',
+                500: '#64748b',
+                600: '#475569',
+                700: '#334155',
+                800: '#1e293b',
+                900: '#0f172a',
               },
               primary: {
-                50: '#eff6ff', 100: '#dbeafe', 500: '#3b82f6', 600: '#2563eb',
-                700: '#1d4ed8', 800: '#1e40af', 900: '#1e3a8a',
+                50: '#eff6ff',
+                100: '#dbeafe',
+                500: '#3b82f6',
+                600: '#2563eb',
+                700: '#1d4ed8',
+                800: '#1e40af',
+                900: '#1e3a8a',
               }
             }
           }
         }
       }
     </script>
-    
     <style>
-      body { background-color: #f8fafc; color: #1e293b; }
-    </style>
-    
-    <script type="importmap">
-    {
-      "imports": {
-        "react/": "https://aistudiocdn.com/react@^19.2.1/",
-        "react": "https://aistudiocdn.com/react@^19.2.1",
-        "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
-        "lucide-react": "https://aistudiocdn.com/lucide-react@^0.556.0",
-        "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.39.7"
+      body {
+        background-color: #f8fafc; /* academic-50 */
+        color: #1e293b; /* academic-800 */
       }
-    }
-    </script>
-  </head>
+      /* Custom scrollbar for academic feel */
+      ::-webkit-scrollbar {
+        width: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #f1f5f9;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://aistudiocdn.com/react@^19.2.1/",
+    "react": "https://aistudiocdn.com/react@^19.2.1",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.556.0",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.39.7"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+  <script type="module" src="/index.tsx"></script>
+</body>
 </html>
