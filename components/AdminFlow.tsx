@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Project, QuestionType, SurveyNode, NodeType } from '../types';
-// 👇 补全了 UploadCloud 和 X
 import { Plus, Trash2, GripVertical, Save, Settings, FileText, BarChart3, Eye, Loader2, FolderPlus, FolderOpen, Image as ImageIcon, ChevronUp, Type, StopCircle, PlayCircle, Edit, Copy, Menu, Download, Bold, Underline, Highlighter, WrapText, Italic, X, UploadCloud } from 'lucide-react';
 import { Button } from './ui/Button';
 import { supabase } from '../lib/supabaseClient';
 
-// --- 1. 新增组件：简易富文本工具栏 ---
+// --- 1. 简易富文本工具栏 ---
 const SimpleEditorToolbar: React.FC<{ 
   textareaRef: React.RefObject<HTMLTextAreaElement>; 
   onUpdate: (newText: string) => void; 
-}> = ({ textareaRef, onUpdate }) => {
+  compact?: boolean; // 新增：紧凑模式（给标题用）
+}> = ({ textareaRef, onUpdate, compact }) => {
   
   const insertTag = (tagStart: string, tagEnd: string) => {
     const el = textareaRef.current;
@@ -21,11 +21,9 @@ const SimpleEditorToolbar: React.FC<{
     const selection = text.substring(start, end);
     const after = text.substring(end);
     
-    // 插入标签
     const newText = before + tagStart + (selection || '') + tagEnd + after;
     onUpdate(newText);
     
-    // 恢复焦点并保持选中状态，方便连续操作
     setTimeout(() => {
       el.focus();
       const newCursorPos = selection ? start + tagStart.length + selection.length + tagEnd.length : start + tagStart.length;
@@ -34,14 +32,18 @@ const SimpleEditorToolbar: React.FC<{
   };
 
   return (
-    <div className="flex gap-1 mb-1 p-1 bg-gray-50 border border-b-0 rounded-t border-academic-300">
-       <button type="button" onClick={() => insertTag('<b>', '</b>')} className="p-1 hover:bg-gray-200 rounded text-academic-700" title="Bold (加粗)"><Bold className="w-4 h-4"/></button>
-       <button type="button" onClick={() => insertTag('<i>', '</i>')} className="p-1 hover:bg-gray-200 rounded text-academic-700" title="Italic (斜体)"><Italic className="w-4 h-4"/></button>
-       <button type="button" onClick={() => insertTag('<u>', '</u>')} className="p-1 hover:bg-gray-200 rounded text-academic-700" title="Underline (下划线)"><Underline className="w-4 h-4"/></button>
-       <button type="button" onClick={() => insertTag('<mark>', '</mark>')} className="p-1 hover:bg-gray-200 rounded text-yellow-600" title="Highlight (高亮)"><Highlighter className="w-4 h-4"/></button>
-       <div className="w-px h-4 bg-gray-300 mx-1 self-center"></div>
-       <button type="button" onClick={() => insertTag('<br/>\n', '')} className="p-1 hover:bg-gray-200 rounded text-blue-600" title="Line Break (换行)"><WrapText className="w-4 h-4"/></button>
-       <span className="text-[10px] text-gray-400 self-center ml-auto mr-2">Select text to format</span>
+    <div className={`flex gap-1 mb-1 p-1 bg-gray-50 border border-b-0 rounded-t border-academic-300 ${compact ? 'opacity-80 hover:opacity-100 transition-opacity' : ''}`}>
+       <button type="button" onClick={() => insertTag('<b>', '</b>')} className="p-1 hover:bg-gray-200 rounded text-academic-700" title="Bold"><Bold className="w-3 h-3"/></button>
+       <button type="button" onClick={() => insertTag('<i>', '</i>')} className="p-1 hover:bg-gray-200 rounded text-academic-700" title="Italic"><Italic className="w-3 h-3"/></button>
+       <button type="button" onClick={() => insertTag('<u>', '</u>')} className="p-1 hover:bg-gray-200 rounded text-academic-700" title="Underline"><Underline className="w-3 h-3"/></button>
+       <button type="button" onClick={() => insertTag('<mark>', '</mark>')} className="p-1 hover:bg-gray-200 rounded text-yellow-600" title="Highlight"><Highlighter className="w-3 h-3"/></button>
+       {!compact && (
+         <>
+           <div className="w-px h-3 bg-gray-300 mx-1 self-center"></div>
+           <button type="button" onClick={() => insertTag('<br/>\n', '')} className="p-1 hover:bg-gray-200 rounded text-blue-600" title="Line Break"><WrapText className="w-3 h-3"/></button>
+           <span className="text-[10px] text-gray-400 self-center ml-auto mr-2">Select text to format</span>
+         </>
+       )}
     </div>
   );
 };
@@ -91,7 +93,8 @@ const BuilderNodeRenderer: React.FC<{
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
-  // 2. 专门给富文本用的 Ref
+  // Refs specifically for rich text editors
+  const titleInputRef = useRef<HTMLTextAreaElement>(null); // New: Ref for Title
   const descInputRef = useRef<HTMLTextAreaElement>(null); 
   
   const isSection = node.type === NodeType.SECTION;
@@ -136,12 +139,26 @@ const BuilderNodeRenderer: React.FC<{
                   {isSection ? 'Section' : isText ? 'Text/Media' : 'Question'}
                 </span>
               </div>
-              <input 
-                value={node.title}
-                onChange={(e) => onUpdate(node.id, 'title', e.target.value)}
-                className={`w-full bg-transparent border-b border-transparent focus:border-academic-300 focus:outline-none transition-all placeholder-academic-300 ${isSection ? 'text-base md:text-lg font-bold' : 'text-sm md:text-base font-medium'}`}
-                placeholder={isSection ? "Section Title" : "Question Text"}
-              />
+              
+              {/* --- UPDATED: Title Rich Text Editor --- */}
+              <div className="mt-1">
+                <SimpleEditorToolbar textareaRef={titleInputRef} onUpdate={(val) => onUpdate(node.id, 'title', val)} compact={true} />
+                <textarea
+                  ref={titleInputRef}
+                  value={node.title}
+                  onChange={(e) => onUpdate(node.id, 'title', e.target.value)}
+                  className={`w-full bg-transparent border-b border-academic-200 rounded-b focus:border-academic-300 focus:outline-none transition-all placeholder-academic-300 font-mono resize-y min-h-[40px] overflow-hidden ${isSection ? 'text-base md:text-lg font-bold' : 'text-sm md:text-base font-medium'}`}
+                  placeholder={isSection ? "Section Title (HTML supported)" : "Question Text (HTML supported)"}
+                  rows={1}
+                  onInput={(e) => {
+                     // Auto-grow
+                     const target = e.target as HTMLTextAreaElement;
+                     target.style.height = 'auto';
+                     target.style.height = target.scrollHeight + 'px';
+                  }}
+                />
+              </div>
+
             </div>
             <div className="flex items-center gap-1 shrink-0">
               <button onClick={() => setShowDetails(!showDetails)} className={`p-1.5 rounded ${showDetails ? 'text-primary-600 bg-primary-50' : 'text-academic-400 hover:bg-academic-100'}`}>
@@ -151,7 +168,7 @@ const BuilderNodeRenderer: React.FC<{
             </div>
           </div>
 
-          {/* 3. 在纯文本节点使用工具栏 */}
+          {/* Description Editor (Existing) */}
           {isText && (
              <div className="mt-2">
                 <SimpleEditorToolbar textareaRef={descInputRef} onUpdate={(val) => onUpdate(node.id, 'description', val)} />
@@ -167,7 +184,6 @@ const BuilderNodeRenderer: React.FC<{
 
           {showDetails && (
             <div className="p-3 md:p-4 bg-academic-100/50 rounded-lg border border-academic-200 space-y-4 animate-in slide-in-from-top-2">
-               {/* 4. 在普通问题/章节描述中使用工具栏 */}
                {!isText && (
                  <div>
                     <label className="block text-xs font-bold text-academic-500 uppercase tracking-wider mb-1">Description</label>
@@ -267,10 +283,11 @@ const BuilderNodeRenderer: React.FC<{
 const PreviewNodeRenderer: React.FC<{ node: SurveyNode; level: string }> = ({ node, level }) => {
   const imageStyleClass = "w-full h-auto object-contain rounded mb-4 border border-academic-200";
 
-  // 5. 渲染函数：安全解析 HTML 标签
-  const renderRichText = (text?: string) => {
-    if (!text) return null;
-    return <div className="text-sm text-academic-600 whitespace-pre-wrap leading-relaxed" dangerouslySetInnerHTML={{ __html: text }} />;
+  // 渲染函数：解析 HTML
+  const renderRichText = (text?: string, isTitle?: boolean) => {
+    if (!text) return isTitle ? 'Untitled' : null;
+    const baseClass = isTitle ? "" : "text-sm text-academic-600 whitespace-pre-wrap leading-relaxed";
+    return <span className={baseClass} dangerouslySetInnerHTML={{ __html: text }} />;
   };
 
   if (node.type === NodeType.SECTION) {
@@ -278,7 +295,7 @@ const PreviewNodeRenderer: React.FC<{ node: SurveyNode; level: string }> = ({ no
       <div className="mb-6 border-l-2 border-academic-200 pl-3 md:pl-4 mt-4">
         <h3 className="text-base md:text-lg font-bold text-academic-800 mb-2 flex items-center gap-2">
           <span className="text-xs font-mono text-academic-400 shrink-0">{level}</span> 
-          <span>{node.title || 'Untitled Section'}</span>
+          <span>{renderRichText(node.title, true)}</span>
         </h3>
         {node.description && <div className="mb-4 bg-academic-50 p-3 rounded">{renderRichText(node.description)}</div>}
         {node.imageUrl && <img src={node.imageUrl} className={imageStyleClass} alt="Section" />}
@@ -291,7 +308,7 @@ const PreviewNodeRenderer: React.FC<{ node: SurveyNode; level: string }> = ({ no
   if (node.type === NodeType.TEXT) {
     return (
        <div className="bg-white p-4 rounded border border-academic-100 mb-4">
-          <h4 className="font-bold text-academic-900 mb-2">{node.title}</h4>
+          <h4 className="font-bold text-academic-900 mb-2">{renderRichText(node.title, true)}</h4>
           {node.imageUrl && <img src={node.imageUrl} className={imageStyleClass} alt="Content" />}
           {renderRichText(node.description)}
        </div>
@@ -302,10 +319,8 @@ const PreviewNodeRenderer: React.FC<{ node: SurveyNode; level: string }> = ({ no
        <div className="flex gap-2 md:gap-3">
           <span className="text-xs font-mono text-academic-400 mt-1 shrink-0">{level}</span>
           <div className="flex-1 min-w-0">
-             <h4 className="font-medium text-academic-900 mb-2">{node.title || 'Untitled Question'}</h4>
-             {/* 使用富文本渲染 */}
+             <h4 className="font-medium text-academic-900 mb-2">{renderRichText(node.title, true)}</h4>
              {node.description && <div className="mb-3 text-academic-500">{renderRichText(node.description)}</div>}
-             
              {node.imageUrl && <img src={node.imageUrl} className={imageStyleClass} alt="Question" />}
              <div className="mt-2 pointer-events-none opacity-80">
                 {node.questionType === QuestionType.LIKERT_SCALE && (
@@ -605,7 +620,7 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
           </div>
         )}
 
-        {/* Projects & Responses Tabs (Mostly same, kept for context) */}
+        {/* Projects & Responses Tabs */}
         {activeTab === 'PROJECTS' && (
            <div className="max-w-6xl mx-auto py-6 px-4 md:py-12 md:px-8">
               <h1 className="text-xl md:text-2xl font-bold text-academic-900 mb-6">Manage Projects</h1>

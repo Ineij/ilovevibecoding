@@ -466,12 +466,21 @@ export const ExpertFlow: React.FC<ExpertFlowProps> = () => {
 
 // --- Helper: Question Renderer (手机适配优化版) ---
 const QuestionRenderer: React.FC<{ node: SurveyNode; level: string; answers: any; setAnswers: any; }> = ({ node, level, answers, setAnswers }) => {
+   
+   // 👇 辅助函数：渲染富文本标题/描述
+   const renderRichText = (text?: string, isTitle?: boolean) => {
+      if (!text) return isTitle ? 'Untitled' : null;
+      // 标题用大字体，描述用小字体
+      const baseClass = isTitle ? "" : "text-sm text-academic-600 leading-relaxed";
+      return <span className={baseClass} dangerouslySetInnerHTML={{ __html: text }} />;
+   };
+
    if (node.type === NodeType.SECTION) {
       return (
          <div className="space-y-6 mt-8 first:mt-0">
             <div className="border-l-4 border-primary-500 pl-4 py-1">
-               <h2 className="text-lg md:text-xl font-bold text-academic-900">{node.title}</h2>
-               {node.description && <p className="text-sm text-academic-600 mt-1">{node.description}</p>}
+               <h2 className="text-lg md:text-xl font-bold text-academic-900">{renderRichText(node.title, true)}</h2>
+               {node.description && <div className="mt-1">{renderRichText(node.description)}</div>}
                {node.imageUrl && <img src={node.imageUrl} className="w-full rounded-lg mt-3 border border-academic-200" alt="Section" />}
             </div>
             {node.children.map((child, idx) => <QuestionRenderer key={child.id} node={child} level={`${level}.${idx+1}`} answers={answers} setAnswers={setAnswers} />)}
@@ -481,9 +490,9 @@ const QuestionRenderer: React.FC<{ node: SurveyNode; level: string; answers: any
    if (node.type === NodeType.TEXT) {
       return (
          <div className="bg-white p-5 rounded-xl border border-academic-200 shadow-sm">
-            <h3 className="font-bold text-academic-900 mb-2">{node.title}</h3>
+            <h3 className="font-bold text-academic-900 mb-2">{renderRichText(node.title, true)}</h3>
             {node.imageUrl && <img src={node.imageUrl} className="w-full rounded-lg mb-3 border border-academic-200" alt="Content" />}
-            <p className="text-sm text-academic-600 leading-relaxed whitespace-pre-wrap">{node.description}</p>
+            {renderRichText(node.description)}
          </div>
       );
    }
@@ -493,8 +502,10 @@ const QuestionRenderer: React.FC<{ node: SurveyNode; level: string; answers: any
          <div className="flex gap-3">
             <span className="text-xs font-mono text-academic-400 mt-1 shrink-0">{level}</span>
             <div className="flex-1 min-w-0">
-               <h4 className="font-medium text-academic-900 text-base md:text-lg mb-2">{node.title}</h4>
-               {node.description && <p className="text-sm text-academic-500 mb-4">{node.description}</p>}
+               {/* 👇 这里修改了：使用 renderRichText 渲染标题 */}
+               <h4 className="font-medium text-academic-900 text-base md:text-lg mb-2">{renderRichText(node.title, true)}</h4>
+               
+               {node.description && <div className="mb-4 text-academic-500">{renderRichText(node.description)}</div>}
                {node.imageUrl && <img src={node.imageUrl} className="w-full rounded-lg mb-4 border border-academic-200" alt="Question" />}
                <div className="mt-3">
                   {node.questionType === QuestionType.LIKERT_SCALE && (
