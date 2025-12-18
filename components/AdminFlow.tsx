@@ -1,10 +1,52 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Project, QuestionType, SurveyNode, NodeType } from '../types';
-import { Plus, Trash2, GripVertical, Save, Settings, FileText, BarChart3, Eye, Loader2, FolderPlus, FolderOpen, Image as ImageIcon, ChevronUp, Type, StopCircle, PlayCircle, Edit, Calendar, Hash, X, UploadCloud, Copy, Menu, Download } from 'lucide-react';
+// 👇 补全了 UploadCloud 和 X
+import { Plus, Trash2, GripVertical, Save, Settings, FileText, BarChart3, Eye, Loader2, FolderPlus, FolderOpen, Image as ImageIcon, ChevronUp, Type, StopCircle, PlayCircle, Edit, Copy, Menu, Download, Bold, Underline, Highlighter, WrapText, Italic, X, UploadCloud } from 'lucide-react';
 import { Button } from './ui/Button';
 import { supabase } from '../lib/supabaseClient';
 
-// --- Helper: Recursive Builder Node Logic ---
+// --- 1. 新增组件：简易富文本工具栏 ---
+const SimpleEditorToolbar: React.FC<{ 
+  textareaRef: React.RefObject<HTMLTextAreaElement>; 
+  onUpdate: (newText: string) => void; 
+}> = ({ textareaRef, onUpdate }) => {
+  
+  const insertTag = (tagStart: string, tagEnd: string) => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const text = el.value;
+    const before = text.substring(0, start);
+    const selection = text.substring(start, end);
+    const after = text.substring(end);
+    
+    // 插入标签
+    const newText = before + tagStart + (selection || '') + tagEnd + after;
+    onUpdate(newText);
+    
+    // 恢复焦点并保持选中状态，方便连续操作
+    setTimeout(() => {
+      el.focus();
+      const newCursorPos = selection ? start + tagStart.length + selection.length + tagEnd.length : start + tagStart.length;
+      el.setSelectionRange(newCursorPos, newCursorPos);
+    }, 0);
+  };
+
+  return (
+    <div className="flex gap-1 mb-1 p-1 bg-gray-50 border border-b-0 rounded-t border-academic-300">
+       <button type="button" onClick={() => insertTag('<b>', '</b>')} className="p-1 hover:bg-gray-200 rounded text-academic-700" title="Bold (加粗)"><Bold className="w-4 h-4"/></button>
+       <button type="button" onClick={() => insertTag('<i>', '</i>')} className="p-1 hover:bg-gray-200 rounded text-academic-700" title="Italic (斜体)"><Italic className="w-4 h-4"/></button>
+       <button type="button" onClick={() => insertTag('<u>', '</u>')} className="p-1 hover:bg-gray-200 rounded text-academic-700" title="Underline (下划线)"><Underline className="w-4 h-4"/></button>
+       <button type="button" onClick={() => insertTag('<mark>', '</mark>')} className="p-1 hover:bg-gray-200 rounded text-yellow-600" title="Highlight (高亮)"><Highlighter className="w-4 h-4"/></button>
+       <div className="w-px h-4 bg-gray-300 mx-1 self-center"></div>
+       <button type="button" onClick={() => insertTag('<br/>\n', '')} className="p-1 hover:bg-gray-200 rounded text-blue-600" title="Line Break (换行)"><WrapText className="w-4 h-4"/></button>
+       <span className="text-[10px] text-gray-400 self-center ml-auto mr-2">Select text to format</span>
+    </div>
+  );
+};
+
+// --- Helper Functions ---
 const updateNodeInTree = (nodes: SurveyNode[], nodeId: string, updateFn: (n: SurveyNode) => SurveyNode): SurveyNode[] => {
   return nodes.map(node => {
     if (node.id === nodeId) return updateFn(node);
@@ -28,22 +70,16 @@ const addChildToNode = (nodes: SurveyNode[], parentId: string, newNode: SurveyNo
   });
 };
 
-// --- Helper: Flatten Nodes for CSV Export ---
 const flattenQuestions = (nodes: SurveyNode[]): SurveyNode[] => {
   let flat: SurveyNode[] = [];
   nodes.forEach(node => {
-    // 只提取“题目”类型的节点，跳过纯文本和章节标题
-    if (node.type === NodeType.QUESTION) {
-      flat.push(node);
-    }
-    if (node.children && node.children.length > 0) {
-      flat = [...flat, ...flattenQuestions(node.children)];
-    }
+    if (node.type === NodeType.QUESTION) flat.push(node);
+    if (node.children && node.children.length > 0) flat = [...flat, ...flattenQuestions(node.children)];
   });
   return flat;
 };
 
-// --- Component: Builder Node Renderer ---
+// --- Component: Builder Node Renderer (Editor) ---
 const BuilderNodeRenderer: React.FC<{
   node: SurveyNode;
   level: string;
@@ -54,6 +90,10 @@ const BuilderNodeRenderer: React.FC<{
   const [showDetails, setShowDetails] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // 2. 专门给富文本用的 Ref
+  const descInputRef = useRef<HTMLTextAreaElement>(null); 
+  
   const isSection = node.type === NodeType.SECTION;
   const isText = node.type === NodeType.TEXT;
 
@@ -111,26 +151,33 @@ const BuilderNodeRenderer: React.FC<{
             </div>
           </div>
 
+          {/* 3. 在纯文本节点使用工具栏 */}
           {isText && (
              <div className="mt-2">
+                <SimpleEditorToolbar textareaRef={descInputRef} onUpdate={(val) => onUpdate(node.id, 'description', val)} />
                 <textarea 
+                  ref={descInputRef}
                   value={node.description || ''}
                   onChange={(e) => onUpdate(node.id, 'description', e.target.value)}
-                  className="w-full text-sm p-2 border border-academic-200 rounded focus:ring-1 focus:ring-primary-500 outline-none min-h-[60px]"
-                  placeholder="Enter content..."
+                  className="w-full text-sm p-2 border border-academic-200 rounded-b focus:ring-1 focus:ring-primary-500 outline-none min-h-[60px] font-mono leading-relaxed"
+                  placeholder="Content here..."
                 />
              </div>
           )}
 
           {showDetails && (
             <div className="p-3 md:p-4 bg-academic-100/50 rounded-lg border border-academic-200 space-y-4 animate-in slide-in-from-top-2">
+               {/* 4. 在普通问题/章节描述中使用工具栏 */}
                {!isText && (
                  <div>
                     <label className="block text-xs font-bold text-academic-500 uppercase tracking-wider mb-1">Description</label>
+                    <SimpleEditorToolbar textareaRef={descInputRef} onUpdate={(val) => onUpdate(node.id, 'description', val)} />
                     <textarea 
+                      ref={descInputRef}
                       value={node.description || ''}
                       onChange={(e) => onUpdate(node.id, 'description', e.target.value)}
-                      className="w-full text-sm p-2 border border-academic-200 rounded outline-none" rows={2}
+                      className="w-full text-sm p-2 border border-academic-200 rounded-b outline-none font-mono" rows={3}
+                      placeholder="Enter description..."
                     />
                  </div>
                )}
@@ -216,9 +263,15 @@ const BuilderNodeRenderer: React.FC<{
   );
 };
 
-// --- Component: Preview ---
+// --- Component: Preview (支持 HTML 渲染) ---
 const PreviewNodeRenderer: React.FC<{ node: SurveyNode; level: string }> = ({ node, level }) => {
   const imageStyleClass = "w-full h-auto object-contain rounded mb-4 border border-academic-200";
+
+  // 5. 渲染函数：安全解析 HTML 标签
+  const renderRichText = (text?: string) => {
+    if (!text) return null;
+    return <div className="text-sm text-academic-600 whitespace-pre-wrap leading-relaxed" dangerouslySetInnerHTML={{ __html: text }} />;
+  };
 
   if (node.type === NodeType.SECTION) {
     return (
@@ -227,7 +280,7 @@ const PreviewNodeRenderer: React.FC<{ node: SurveyNode; level: string }> = ({ no
           <span className="text-xs font-mono text-academic-400 shrink-0">{level}</span> 
           <span>{node.title || 'Untitled Section'}</span>
         </h3>
-        {node.description && <p className="text-sm text-academic-600 mb-4 bg-academic-50 p-3 rounded">{node.description}</p>}
+        {node.description && <div className="mb-4 bg-academic-50 p-3 rounded">{renderRichText(node.description)}</div>}
         {node.imageUrl && <img src={node.imageUrl} className={imageStyleClass} alt="Section" />}
         <div className="space-y-4">
           {node.children.map((child, idx) => <PreviewNodeRenderer key={child.id} node={child} level={`${level}.${idx+1}`} />)}
@@ -240,7 +293,7 @@ const PreviewNodeRenderer: React.FC<{ node: SurveyNode; level: string }> = ({ no
        <div className="bg-white p-4 rounded border border-academic-100 mb-4">
           <h4 className="font-bold text-academic-900 mb-2">{node.title}</h4>
           {node.imageUrl && <img src={node.imageUrl} className={imageStyleClass} alt="Content" />}
-          <p className="text-sm text-academic-600 whitespace-pre-wrap">{node.description}</p>
+          {renderRichText(node.description)}
        </div>
     );
   }
@@ -250,7 +303,9 @@ const PreviewNodeRenderer: React.FC<{ node: SurveyNode; level: string }> = ({ no
           <span className="text-xs font-mono text-academic-400 mt-1 shrink-0">{level}</span>
           <div className="flex-1 min-w-0">
              <h4 className="font-medium text-academic-900 mb-2">{node.title || 'Untitled Question'}</h4>
-             {node.description && <p className="text-sm text-academic-500 mb-3">{node.description}</p>}
+             {/* 使用富文本渲染 */}
+             {node.description && <div className="mb-3 text-academic-500">{renderRichText(node.description)}</div>}
+             
              {node.imageUrl && <img src={node.imageUrl} className={imageStyleClass} alt="Question" />}
              <div className="mt-2 pointer-events-none opacity-80">
                 {node.questionType === QuestionType.LIKERT_SCALE && (
@@ -299,7 +354,7 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
   const [showPreview, setShowPreview] = useState(false);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [isExporting, setIsExporting] = useState(false); // Export State
+  const [isExporting, setIsExporting] = useState(false);
 
   // Projects View State
   const [existingProjects, setExistingProjects] = useState<Project[]>([]);
@@ -326,7 +381,6 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
       setResponses(responseData.map((r: any) => ({
         id: r.id, name: r.experts?.name || 'Unknown', institution: r.experts?.institution || 'Unknown',
         status: r.status || 'SUBMITTED', title: r.projects?.title || 'Untitled', details: r.answers,
-        // 保留原始 expert 对象以便查看详情
         expertFull: r.experts 
       })));
     }
@@ -338,85 +392,45 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
     if (activeTab === 'PROJECTS') fetchProjectsList();
   }, [activeTab]);
 
-  // --- CSV Export Logic ---
+  // CSV Export Logic
   const handleExportCSV = async (project: Project) => {
     try {
       setIsExporting(true);
-      
-      // 1. 获取该项目的所有 Responses（包含专家详情）
-      const { data: responseData, error } = await supabase
-        .from('responses')
-        .select('*, experts(*)')
-        .eq('project_id', project.id);
-        
+      const { data: responseData, error } = await supabase.from('responses').select('*, experts(*), projects(access_code)').eq('project_id', project.id);
       if (error) throw error;
-      if (!responseData || responseData.length === 0) {
-        alert("No responses found for this project.");
-        return;
-      }
+      if (!responseData || responseData.length === 0) { alert("No responses found."); return; }
 
-      // 2. 准备表头：专家信息 + 所有问题标题
       const questionNodes = flattenQuestions(project.nodes || []);
-      
-      // 定义固定的专家信息列
-      const expertHeaders = [
-        "Expert Name", "Institution", "Department", "Job Title", 
-        "Education", "Major", "Years Exp", "Phone", "Email", "Submit Status", "Submit Time"
-      ];
-      
-      // 动态的题目列 (用 'Q1: 标题' 格式)
+      const expertHeaders = ["Expert Name", "Institution", "Department", "Job Title", "Education", "Major", "Years Exp", "Phone", "Email", "Submit Status", "Submit Time"];
       const questionHeaders = questionNodes.map((q, idx) => `Q${idx + 1}: ${q.title}`);
       
       const csvRows = [];
-      // 添加第一行表头
       csvRows.push([...expertHeaders, ...questionHeaders].join(","));
 
-      // 3. 填充数据行
       responseData.forEach((resp: any) => {
         const exp = resp.experts || {};
         const answers = resp.answers || {};
-        
-        // 提取专家信息 (处理可能的逗号，防止破坏CSV格式)
         const expertData = [
-          exp.name || "",
-          exp.institution || "",
-          exp.department || "",
-          exp.job_title || "",
-          exp.education || "",
-          exp.major || "",
-          exp.years_experience || "",
-          exp.phone || "",
-          exp.email || "",
-          resp.status || "SUBMITTED",
-          new Date(resp.updated_at).toLocaleString()
-        ].map(field => `"${String(field).replace(/"/g, '""')}"`); // 给每个字段加引号处理
-
-        // 提取问题答案 (按表头顺序匹配)
+          exp.name, exp.institution, exp.department, exp.job_title, exp.education, exp.major, exp.years_experience, exp.phone, exp.email,
+          resp.status || "SUBMITTED", new Date(resp.updated_at).toLocaleString()
+        ].map(field => `"${String(field || "").replace(/"/g, '""')}"`);
+        
         const answerData = questionNodes.map(q => {
           const val = answers[q.id];
-          if (val === undefined || val === null) return "";
-          return `"${String(val).replace(/"/g, '""')}"`;
+          return `"${String(val !== undefined && val !== null ? val : "").replace(/"/g, '""')}"`;
         });
-
         csvRows.push([...expertData, ...answerData].join(","));
       });
 
-      // 4. 触发下载
-      const csvString = '\uFEFF' + csvRows.join("\n"); // 添加 BOM 防止中文乱码
+      const csvString = '\uFEFF' + csvRows.join("\n");
       const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `Delphi_Round${project.round}_Export_${new Date().toISOString().slice(0,10)}.csv`);
+      link.href = URL.createObjectURL(blob);
+      link.setAttribute('download', `Delphi_Export_${project.title}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-
-    } catch (e: any) {
-      alert("Export failed: " + e.message);
-    } finally {
-      setIsExporting(false);
-    }
+    } catch (e: any) { alert("Export failed: " + e.message); } finally { setIsExporting(false); }
   };
 
   // --- Handlers ---
@@ -435,22 +449,19 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
   };
 
   const handleDuplicateProject = (project: any) => {
-    const confirmCopy = window.confirm(`Duplicate "${project.title}" to start the next round?`);
-    if (!confirmCopy) return;
-
+    if(!window.confirm(`Duplicate "${project.title}"?`)) return;
     setSurveyTitle(`Copy of ${project.title}`);
     setSurveySubtitle(project.subtitle || '');
     setSurveyDescription(project.description || '');
     setSurveyLanguage(project.language || 'en');
-    const nodesCopy = JSON.parse(JSON.stringify(project.nodes || []));
-    setNodes(nodesCopy);
+    setNodes(JSON.parse(JSON.stringify(project.nodes || [])));
     setCurrentRound((project.round || 1) + 1);
     setTotalRounds(project.total_rounds || 3);
     setDeadlineDate(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
     setEditingProjectId(null); 
     setActiveTab('BUILDER');
     setIsMobileMenuOpen(false);
-    alert(`Draft created based on "${project.title}". You are now editing a NEW project for Round ${(project.round || 1) + 1}.`);
+    alert(`Draft created for Round ${(project.round || 1) + 1}.`);
   };
 
   const saveProject = async () => {
@@ -471,10 +482,9 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
     }
     setIsSaving(false);
 
-    if (error) {
-       alert(`Error saving: ${error.message}`);
-    } else {
-       alert(editingProjectId ? 'Project UPDATED!' : 'Project PUBLISHED!');
+    if (error) alert(`Error saving: ${error.message}`);
+    else {
+       alert(editingProjectId ? 'Updated!' : 'Published!');
        setNodes([]); setSurveyTitle('New Consensus Round'); setEditingProjectId(null);
        if (onProjectPublished) onProjectPublished();
     }
@@ -483,11 +493,8 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
   const handleStatusChange = async (projectId: string, currentStatus: string) => {
      const newStatus = currentStatus === 'PUBLISHED' ? 'DRAFT' : 'PUBLISHED';
      setUpdatingId(projectId);
-     const { error } = await supabase.from('projects').update({ status: newStatus }).eq('id', projectId);
-     if (!error) {
-        setExistingProjects(prev => prev.map(p => p.id === projectId ? { ...p, status: newStatus as any } : p));
-        if (onProjectPublished) onProjectPublished();
-     }
+     await supabase.from('projects').update({ status: newStatus }).eq('id', projectId);
+     setExistingProjects(prev => prev.map(p => p.id === projectId ? { ...p, status: newStatus as any } : p));
      setUpdatingId(null);
   };
 
@@ -503,32 +510,20 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
   return (
     <div className="flex flex-col md:flex-row min-h-screen bg-academic-50">
       
-      {/* Mobile Header */}
+      {/* Mobile Header & Sidebar (Same as before) */}
       <div className="md:hidden bg-academic-900 text-white p-4 flex justify-between items-center sticky top-0 z-50">
          <span className="font-bold">ADMIN CONSOLE</span>
          <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}><Menu /></button>
       </div>
-
-      {/* Sidebar (Desktop) / Mobile Menu */}
-      <div className={`
-        ${isMobileMenuOpen ? 'block' : 'hidden'} md:block
-        w-full md:w-64 bg-academic-900 text-academic-100 flex-col shadow-xl z-40 
-        fixed md:sticky top-14 md:top-0 h-[calc(100vh-3.5rem)] md:h-screen overflow-y-auto
-      `}>
+      <div className={`${isMobileMenuOpen ? 'block' : 'hidden'} md:block w-full md:w-64 bg-academic-900 text-academic-100 flex-col shadow-xl z-40 fixed md:sticky top-14 md:top-0 h-[calc(100vh-3.5rem)] md:h-screen overflow-y-auto`}>
         <div className="p-6 border-b border-academic-800 hidden md:block">
           <div className="font-bold text-lg tracking-wider text-white">ADMIN CONSOLE</div>
-          <div className="text-xs text-academic-400 mt-1">Delphi Manager v2.4</div>
+          <div className="text-xs text-academic-400 mt-1">Delphi Manager v2.5</div>
         </div>
         <nav className="p-4 space-y-2">
-          <button onClick={() => {setActiveTab('BUILDER'); setEditingProjectId(null); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3 rounded-md transition-all ${activeTab === 'BUILDER' ? 'bg-primary-700 text-white' : 'hover:bg-academic-800 text-academic-400'}`}>
-            <FileText className="w-5 h-5" /> <span className="font-medium">Form Builder</span>
-          </button>
-          <button onClick={() => {setActiveTab('PROJECTS'); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3 rounded-md transition-all ${activeTab === 'PROJECTS' ? 'bg-primary-700 text-white' : 'hover:bg-academic-800 text-academic-400'}`}>
-            <FolderOpen className="w-5 h-5" /> <span className="font-medium">Projects</span>
-          </button>
-          <button onClick={() => {setActiveTab('RESPONSES'); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3 rounded-md transition-all ${activeTab === 'RESPONSES' ? 'bg-primary-700 text-white' : 'hover:bg-academic-800 text-academic-400'}`}>
-            <BarChart3 className="w-5 h-5" /> <span className="font-medium">Responses</span>
-          </button>
+          <button onClick={() => {setActiveTab('BUILDER'); setEditingProjectId(null); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3 rounded-md transition-all ${activeTab === 'BUILDER' ? 'bg-primary-700 text-white' : 'hover:bg-academic-800 text-academic-400'}`}><FileText className="w-5 h-5" /> <span className="font-medium">Form Builder</span></button>
+          <button onClick={() => {setActiveTab('PROJECTS'); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3 rounded-md transition-all ${activeTab === 'PROJECTS' ? 'bg-primary-700 text-white' : 'hover:bg-academic-800 text-academic-400'}`}><FolderOpen className="w-5 h-5" /> <span className="font-medium">Projects</span></button>
+          <button onClick={() => {setActiveTab('RESPONSES'); setIsMobileMenuOpen(false);}} className={`w-full flex items-center gap-3 px-4 py-3 rounded-md transition-all ${activeTab === 'RESPONSES' ? 'bg-primary-700 text-white' : 'hover:bg-academic-800 text-academic-400'}`}><BarChart3 className="w-5 h-5" /> <span className="font-medium">Responses</span></button>
         </nav>
       </div>
 
@@ -554,6 +549,7 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
               </div>
             )}
 
+            {/* Config Panel */}
             <div className="bg-white rounded-xl shadow-sm border border-academic-200 p-4 md:p-8 mb-8 sticky top-0 md:top-4 z-20">
               <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
                 <div>
@@ -568,23 +564,18 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
                       <button onClick={() => setSurveyLanguage('en')} className={`px-2 py-1 text-xs font-bold rounded ${surveyLanguage === 'en' ? 'bg-white shadow' : 'text-academic-500'}`}>EN</button>
                       <button onClick={() => setSurveyLanguage('cn')} className={`px-2 py-1 text-xs font-bold rounded ${surveyLanguage === 'cn' ? 'bg-white shadow' : 'text-academic-500'}`}>CN</button>
                    </div>
-                   <Button variant="outline" size="sm" onClick={() => setShowPreview(true)} className="gap-1 flex-1 md:flex-none justify-center">
-                     <Eye className="w-4 h-4"/> Preview
-                   </Button>
-                   <Button size="sm" onClick={saveProject} disabled={isSaving} className="flex items-center gap-2 shadow-lg flex-1 md:flex-none justify-center">
-                      {isSaving ? <Loader2 className="w-4 h-4 animate-spin"/> : <Save className="w-4 h-4" />} 
-                      {editingProjectId ? 'UPDATE' : 'PUBLISH'}
-                   </Button>
+                   <Button variant="outline" size="sm" onClick={() => setShowPreview(true)} className="gap-1 flex-1 md:flex-none justify-center"><Eye className="w-4 h-4"/> Preview</Button>
+                   <Button size="sm" onClick={saveProject} disabled={isSaving} className="flex items-center gap-2 shadow-lg flex-1 md:flex-none justify-center">{isSaving ? <Loader2 className="w-4 h-4 animate-spin"/> : <Save className="w-4 h-4" />} {editingProjectId ? 'UPDATE' : 'PUBLISH'}</Button>
                 </div>
               </div>
               
               <div className="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-4 mb-4 p-2 bg-academic-50 rounded border border-academic-100">
                  <div className="col-span-1">
-                    <label className="block text-[10px] font-bold text-academic-500 uppercase mb-1">Current Round</label>
+                    <label className="block text-[10px] font-bold text-academic-500 uppercase mb-1">Round</label>
                     <input type="number" min="1" value={currentRound} onChange={e => setCurrentRound(parseInt(e.target.value))} className="w-full text-sm border rounded px-2 py-1"/>
                  </div>
                  <div className="col-span-1">
-                    <label className="block text-[10px] font-bold text-academic-500 uppercase mb-1">Total Rounds</label>
+                    <label className="block text-[10px] font-bold text-academic-500 uppercase mb-1">Total</label>
                     <input type="number" min="1" value={totalRounds} onChange={e => setTotalRounds(parseInt(e.target.value))} className="w-full text-sm border rounded px-2 py-1"/>
                  </div>
                  <div className="col-span-2 md:col-span-1">
@@ -600,8 +591,9 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
               </div>
             </div>
 
+            {/* Builder List */}
             <div className="space-y-4 md:space-y-6 pb-32">
-               {nodes.length === 0 && <div className="text-center py-12 border-2 border-dashed border-academic-300 rounded-xl bg-academic-50/50 text-academic-400">Tap buttons below to add content.</div>}
+               {nodes.length === 0 && <div className="text-center py-12 border-2 border-dashed border-academic-300 rounded-xl bg-academic-50/50 text-academic-400">Add questions or sections below.</div>}
                {nodes.map((node, idx) => <BuilderNodeRenderer key={node.id} node={node} level={`${idx + 1}`} onUpdate={handleUpdateNode} onAddChild={handleAddChildNode} onDelete={handleDeleteNode} />)}
                
                <div className="flex flex-wrap gap-2 md:gap-4 justify-center mt-8 border-t border-academic-200 pt-8">
@@ -613,11 +605,11 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
           </div>
         )}
 
+        {/* Projects & Responses Tabs (Mostly same, kept for context) */}
         {activeTab === 'PROJECTS' && (
            <div className="max-w-6xl mx-auto py-6 px-4 md:py-12 md:px-8">
               <h1 className="text-xl md:text-2xl font-bold text-academic-900 mb-6">Manage Projects</h1>
-              
-              {/* Mobile Card View */}
+              {/* Mobile View */}
               <div className="md:hidden space-y-4">
                  {existingProjects.map((proj) => (
                     <div key={proj.id} className="bg-white p-4 rounded-lg shadow border border-academic-200">
@@ -629,11 +621,7 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
                           <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${proj.status === 'PUBLISHED' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{proj.status}</span>
                        </div>
                        <div className="flex flex-wrap justify-end gap-2 mt-4 pt-3 border-t">
-                          {/* Export Button */}
-                          <Button size="sm" variant="secondary" onClick={() => handleExportCSV(proj)} disabled={isExporting}>
-                             <Download className="w-3 h-3 mr-1"/> Data
-                          </Button>
-
+                          <Button size="sm" variant="secondary" onClick={() => handleExportCSV(proj)} disabled={isExporting}><Download className="w-3 h-3 mr-1"/> Data</Button>
                           <Button size="sm" variant="secondary" onClick={() => handleDuplicateProject(proj)}><Copy className="w-3 h-3 mr-1"/> Copy</Button>
                           {proj.status === 'DRAFT' && <Button size="sm" variant="secondary" onClick={() => handleEditProject(proj)}><Edit className="w-3 h-3 mr-1"/> Edit</Button>}
                           <Button size="sm" variant="outline" onClick={() => handleStatusChange(proj.id, proj.status)}>{proj.status === 'PUBLISHED' ? 'Retract' : 'Publish'}</Button>
@@ -641,12 +629,16 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
                     </div>
                  ))}
               </div>
-
               {/* Desktop Table View */}
               <div className="hidden md:block bg-white rounded-xl shadow-sm border border-academic-200 overflow-hidden">
                  <table className="w-full text-left">
                     <thead className="bg-academic-50 border-b border-academic-200">
-                       <tr><th className="px-6 py-4 text-xs font-bold text-academic-500 uppercase">Title</th><th className="px-6 py-4 text-xs font-bold text-academic-500 uppercase">Round</th><th className="px-6 py-4 text-xs font-bold text-academic-500 uppercase">Status</th><th className="px-6 py-4 text-xs font-bold text-academic-500 uppercase text-right">Actions</th></tr>
+                       <tr>
+                          <th className="px-6 py-4 text-xs font-bold text-academic-500 uppercase">Title</th>
+                          <th className="px-6 py-4 text-xs font-bold text-academic-500 uppercase">Round</th>
+                          <th className="px-6 py-4 text-xs font-bold text-academic-500 uppercase">Status</th>
+                          <th className="px-6 py-4 text-xs font-bold text-academic-500 uppercase text-right">Actions</th>
+                       </tr>
                     </thead>
                     <tbody className="divide-y divide-academic-100">
                        {existingProjects.map((proj) => (
@@ -655,11 +647,7 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
                              <td className="px-6 py-4 text-sm">{proj.round} / {proj.totalRounds}</td>
                              <td className="px-6 py-4"><span className={`px-2 py-0.5 rounded text-xs font-bold ${proj.status === 'PUBLISHED' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>{proj.status}</span></td>
                              <td className="px-6 py-4 text-right space-x-2">
-                                {/* Export Button */}
-                                <Button size="sm" variant="secondary" onClick={() => handleExportCSV(proj)} disabled={isExporting}>
-                                   <Download className="w-3 h-3 mr-1"/> Data
-                                </Button>
-
+                                <Button size="sm" variant="secondary" onClick={() => handleExportCSV(proj)} disabled={isExporting}><Download className="w-3 h-3 mr-1"/> Data</Button>
                                 <Button size="sm" variant="secondary" onClick={() => handleDuplicateProject(proj)}><Copy className="w-3 h-3 mr-1"/> Duplicate</Button>
                                 {proj.status === 'DRAFT' && <Button size="sm" variant="secondary" onClick={() => handleEditProject(proj)}><Edit className="w-3 h-3 mr-1"/> Edit</Button>}
                                 <Button size="sm" variant="outline" onClick={() => handleStatusChange(proj.id, proj.status)} disabled={updatingId === proj.id}>
