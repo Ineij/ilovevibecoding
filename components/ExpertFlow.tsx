@@ -464,13 +464,13 @@ export const ExpertFlow: React.FC<ExpertFlowProps> = () => {
   );
 };
 
-// --- Helper: Question Renderer (手机适配优化版) ---
+// --- Helper: Question Renderer (手机适配优化版 + 样式修复) ---
 const QuestionRenderer: React.FC<{ node: SurveyNode; level: string; answers: any; setAnswers: any; }> = ({ node, level, answers, setAnswers }) => {
    
    // 👇 辅助函数：渲染富文本标题/描述
-   // 关键修改：加入了 whitespace-pre-wrap，让键盘 Enter 和 HTML <br> 都能生效
    const renderRichText = (text?: string, isTitle?: boolean) => {
       if (!text) return isTitle ? 'Untitled' : null;
+      // ⚠️ 确保加入 whitespace-pre-wrap 使得 \n 和键盘回车生效
       const baseClass = isTitle 
          ? "whitespace-pre-wrap" 
          : "text-sm text-academic-600 leading-relaxed whitespace-pre-wrap";
@@ -514,7 +514,10 @@ const QuestionRenderer: React.FC<{ node: SurveyNode; level: string; answers: any
                <div className="mt-3">
                   {node.questionType === QuestionType.LIKERT_SCALE && (
                      <div className="flex flex-col gap-2">
-                        <div className="flex justify-between items-center gap-1 md:gap-4 max-w-full overflow-x-auto pb-2">
+                        {/* ⚠️ 关键修复：这里的 p-2 (padding) 替代了原来的 pb-2 
+                          这解决了按钮放大时顶部被切掉的问题
+                        */}
+                        <div className="flex justify-between items-center gap-1 md:gap-4 max-w-full overflow-x-auto p-2">
                            <span className="text-[10px] text-academic-400 uppercase font-bold hidden md:inline">Disagree</span>
                            {Array.from({length: node.likertScale || 5}, (_, i) => i + 1).map(n => (
                               <button key={n} onClick={() => setAnswers({...answers, [node.id]: n})} className={`w-10 h-10 md:w-12 md:h-12 rounded-full border-2 flex items-center justify-center text-sm md:text-base font-bold transition-all shrink-0 ${value === n ? 'border-primary-500 bg-primary-50 text-primary-700 scale-110 shadow-sm' : 'border-academic-200 text-academic-400 hover:border-primary-300 hover:bg-gray-50'}`}>{n}</button>
