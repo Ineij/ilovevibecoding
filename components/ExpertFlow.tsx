@@ -468,10 +468,12 @@ export const ExpertFlow: React.FC<ExpertFlowProps> = () => {
 const QuestionRenderer: React.FC<{ node: SurveyNode; level: string; answers: any; setAnswers: any; }> = ({ node, level, answers, setAnswers }) => {
    
    // 👇 辅助函数：渲染富文本标题/描述
+   // 关键修改：加入了 whitespace-pre-wrap，让键盘 Enter 和 HTML <br> 都能生效
    const renderRichText = (text?: string, isTitle?: boolean) => {
       if (!text) return isTitle ? 'Untitled' : null;
-      // 标题用大字体，描述用小字体
-      const baseClass = isTitle ? "" : "text-sm text-academic-600 leading-relaxed";
+      const baseClass = isTitle 
+         ? "whitespace-pre-wrap" 
+         : "text-sm text-academic-600 leading-relaxed whitespace-pre-wrap";
       return <span className={baseClass} dangerouslySetInnerHTML={{ __html: text }} />;
    };
 
@@ -502,10 +504,12 @@ const QuestionRenderer: React.FC<{ node: SurveyNode; level: string; answers: any
          <div className="flex gap-3">
             <span className="text-xs font-mono text-academic-400 mt-1 shrink-0">{level}</span>
             <div className="flex-1 min-w-0">
-               {/* 👇 这里修改了：使用 renderRichText 渲染标题 */}
+               {/* 标题 */}
                <h4 className="font-medium text-academic-900 text-base md:text-lg mb-2">{renderRichText(node.title, true)}</h4>
                
+               {/* 描述 */}
                {node.description && <div className="mb-4 text-academic-500">{renderRichText(node.description)}</div>}
+               
                {node.imageUrl && <img src={node.imageUrl} className="w-full rounded-lg mb-4 border border-academic-200" alt="Question" />}
                <div className="mt-3">
                   {node.questionType === QuestionType.LIKERT_SCALE && (
