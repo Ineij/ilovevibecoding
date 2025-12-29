@@ -1,5 +1,3 @@
-// src/types.ts
-
 export enum NodeType {
   SECTION = 'SECTION',
   QUESTION = 'QUESTION',
@@ -10,6 +8,12 @@ export enum QuestionType {
   LIKERT_SCALE = 'LIKERT_SCALE',
   SINGLE_CHOICE = 'SINGLE_CHOICE',
   TEXT_AREA = 'TEXT_AREA'
+}
+
+// 👇 补回了这段缺失的代码
+export enum UserRole {
+  ADMIN = 'ADMIN',
+  EXPERT = 'EXPERT'
 }
 
 export interface Option {
@@ -24,7 +28,7 @@ export interface SurveyNode {
   description?: string;
   imageUrl?: string; // 支持图片
   
-  // 👇 新增这一行：自定义编号
+  // 自定义编号 (如 1.1, 2-A)
   customId?: string; 
 
   required?: boolean;
