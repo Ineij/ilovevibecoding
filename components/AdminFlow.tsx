@@ -8,7 +8,7 @@ import { supabase } from '../lib/supabaseClient';
 const SimpleEditorToolbar: React.FC<{ 
   textareaRef: React.RefObject<HTMLTextAreaElement>; 
   onUpdate: (newText: string) => void; 
-  compact?: boolean; // 新增：紧凑模式（给标题用）
+  compact?: boolean; 
 }> = ({ textareaRef, onUpdate, compact }) => {
   
   const insertTag = (tagStart: string, tagEnd: string) => {
@@ -81,10 +81,17 @@ const flattenQuestions = (nodes: SurveyNode[]): SurveyNode[] => {
   return flat;
 };
 
+// 富文本渲染
+const renderRichText = (text?: string, isTitle?: boolean) => {
+   if (!text) return isTitle ? 'Untitled' : null;
+   const baseClass = isTitle ? "" : "text-sm text-academic-600 whitespace-pre-wrap leading-relaxed";
+   return <span className={baseClass} dangerouslySetInnerHTML={{ __html: text }} />;
+};
+
 // --- Component: Builder Node Renderer (Editor) ---
 const BuilderNodeRenderer: React.FC<{
   node: SurveyNode;
-  level: string;
+  level: string; // 这里的 level 仅用于兜底显示，主要使用 customId
   onUpdate: (id: string, field: keyof SurveyNode, val: any) => void;
   onAddChild: (parentId: string, type: NodeType) => void;
   onDelete: (id: string) => void;
@@ -92,9 +99,7 @@ const BuilderNodeRenderer: React.FC<{
   const [showDetails, setShowDetails] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
-  // Refs specifically for rich text editors
-  const titleInputRef = useRef<HTMLTextAreaElement>(null); // New: Ref for Title
+  const titleInputRef = useRef<HTMLTextAreaElement>(null); 
   const descInputRef = useRef<HTMLTextAreaElement>(null); 
   
   const isSection = node.type === NodeType.SECTION;
@@ -121,37 +126,53 @@ const BuilderNodeRenderer: React.FC<{
 
   return (
     <div className={`
-      relative border border-academic-200 rounded-lg p-3 md:p-4 mb-4 transition-all
-      ${isSection ? 'bg-academic-50 ml-2 md:ml-4' : 'bg-white ml-4 md:ml-8 shadow-sm'}
+      relative border border-academic-200 rounded-lg mb-3 transition-all
+      ${isSection ? 'bg-academic-50 ml-2 md:ml-4 p-3' : 'bg-white ml-4 md:ml-8 shadow-sm p-4'}
       ${level.length === 1 ? '!ml-0' : ''}
     `}>
+      {/* 视觉辅助线 */}
       <div className="absolute -left-2 md:-left-4 top-0 bottom-0 w-px bg-academic-200" />
       <div className="absolute -left-2 md:-left-4 top-6 w-2 md:w-4 h-px bg-academic-200" />
 
-      <div className="flex gap-2 md:gap-3">
+      <div className="flex gap-3">
+        {/* 拖拽手柄 */}
         <div className="mt-2 text-academic-300 cursor-move hidden md:block"><GripVertical className="w-4 h-4" /></div>
-        <div className="flex-1 space-y-3 min-w-0">
-          <div className="flex justify-between items-start gap-2">
-            <div className="flex-1 min-w-0">
+        
+        <div className="flex-1 space-y-2 min-w-0">
+          <div className="flex justify-between items-start gap-3">
+            
+            {/* 编号输入框 + 标题输入框 */}
+            <div className="flex-1 min-w-0 flex flex-col gap-2">
               <div className="flex items-center gap-2 mb-1">
-                <span className="text-xs font-mono text-academic-400 bg-academic-100 px-1.5 py-0.5 rounded">{level}</span>
-                <span className="text-[10px] md:text-xs font-bold text-academic-600 uppercase truncate">
-                  {isSection ? 'Section' : isText ? 'Text/Media' : 'Question'}
-                </span>
+                 <span className="text-[10px] font-bold text-academic-400 uppercase tracking-wider">
+                    {isSection ? 'Section' : isText ? 'Text/Media' : 'Question'}
+                 </span>
+                 {/* 🏷️ 自定义编号输入框 - 代替原来的自动编号 */}
+                 {!isText && (
+                   <div className="flex items-center bg-academic-100 rounded px-1.5 py-0.5">
+                     <span className="text-[10px] text-academic-400 mr-1">No.</span>
+                     <input 
+                        value={node.customId || ''}
+                        onChange={(e) => onUpdate(node.id, 'customId', e.target.value)}
+                        placeholder={level} // 默认显示自动编号作为提示
+                        className="w-12 bg-transparent text-xs font-mono font-bold text-academic-700 outline-none placeholder-academic-300 text-center"
+                     />
+                   </div>
+                 )}
               </div>
               
-              {/* --- UPDATED: Title Rich Text Editor --- */}
-              <div className="mt-1">
+              {/* 标题编辑器 */}
+              <div>
                 <SimpleEditorToolbar textareaRef={titleInputRef} onUpdate={(val) => onUpdate(node.id, 'title', val)} compact={true} />
                 <textarea
                   ref={titleInputRef}
                   value={node.title}
                   onChange={(e) => onUpdate(node.id, 'title', e.target.value)}
-                  className={`w-full bg-transparent border-b border-academic-200 rounded-b focus:border-academic-300 focus:outline-none transition-all placeholder-academic-300 font-mono resize-y min-h-[40px] overflow-hidden ${isSection ? 'text-base md:text-lg font-bold' : 'text-sm md:text-base font-medium'}`}
-                  placeholder={isSection ? "Section Title (HTML supported)" : "Question Text (HTML supported)"}
+                  className={`w-full bg-transparent border-b border-academic-200 rounded-b focus:border-academic-300 focus:outline-none transition-all placeholder-academic-300 font-mono resize-y min-h-[36px] overflow-hidden ${isSection ? 'text-base font-bold' : 'text-sm font-medium'}`}
+                  placeholder={isSection ? "Section Title" : "Question Text"}
                   rows={1}
+                  style={{ minHeight: '38px' }}
                   onInput={(e) => {
-                     // Auto-grow
                      const target = e.target as HTMLTextAreaElement;
                      target.style.height = 'auto';
                      target.style.height = target.scrollHeight + 'px';
@@ -160,15 +181,17 @@ const BuilderNodeRenderer: React.FC<{
               </div>
 
             </div>
-            <div className="flex items-center gap-1 shrink-0">
-              <button onClick={() => setShowDetails(!showDetails)} className={`p-1.5 rounded ${showDetails ? 'text-primary-600 bg-primary-50' : 'text-academic-400 hover:bg-academic-100'}`}>
+
+            {/* 操作按钮 */}
+            <div className="flex items-center gap-1 shrink-0 pt-1">
+              <button onClick={() => setShowDetails(!showDetails)} className={`p-1.5 rounded transition-colors ${showDetails ? 'text-primary-600 bg-primary-50' : 'text-academic-400 hover:bg-academic-100'}`}>
                 {showDetails ? <ChevronUp className="w-4 h-4"/> : <ImageIcon className="w-4 h-4"/>}
               </button>
-              <button onClick={() => onDelete(node.id)} className="p-1.5 text-academic-400 hover:text-red-500 hover:bg-red-50 rounded"><Trash2 className="w-4 h-4" /></button>
+              <button onClick={() => onDelete(node.id)} className="p-1.5 text-academic-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"><Trash2 className="w-4 h-4" /></button>
             </div>
           </div>
 
-          {/* Description Editor (Existing) */}
+          {/* Description Editor */}
           {isText && (
              <div className="mt-2">
                 <SimpleEditorToolbar textareaRef={descInputRef} onUpdate={(val) => onUpdate(node.id, 'description', val)} />
@@ -183,10 +206,10 @@ const BuilderNodeRenderer: React.FC<{
           )}
 
           {showDetails && (
-            <div className="p-3 md:p-4 bg-academic-100/50 rounded-lg border border-academic-200 space-y-4 animate-in slide-in-from-top-2">
+            <div className="p-3 bg-academic-50 rounded-lg border border-academic-100 space-y-3 animate-in fade-in slide-in-from-top-1">
                {!isText && (
                  <div>
-                    <label className="block text-xs font-bold text-academic-500 uppercase tracking-wider mb-1">Description</label>
+                    <label className="block text-[10px] font-bold text-academic-500 uppercase tracking-wider mb-1">Description</label>
                     <SimpleEditorToolbar textareaRef={descInputRef} onUpdate={(val) => onUpdate(node.id, 'description', val)} />
                     <textarea 
                       ref={descInputRef}
@@ -199,21 +222,21 @@ const BuilderNodeRenderer: React.FC<{
                )}
                
                <div>
-                  <label className="block text-xs font-bold text-academic-500 uppercase tracking-wider mb-2">Image</label>
+                  <label className="block text-[10px] font-bold text-academic-500 uppercase tracking-wider mb-2">Image</label>
                   <input type="file" ref={fileInputRef} onChange={handleImageUpload} accept="image/*" className="hidden" disabled={uploading}/>
-                  <div className="flex flex-col gap-3">
+                  <div className="flex flex-col gap-2">
                     {node.imageUrl ? (
-                      <div className="relative group rounded-lg overflow-hidden border border-academic-200 bg-white">
-                        <img src={node.imageUrl} alt="Preview" className="w-full h-auto max-h-[300px] object-contain" />
+                      <div className="relative group rounded-lg overflow-hidden border border-academic-200 bg-white w-fit">
+                        <img src={node.imageUrl} alt="Preview" className="h-32 w-auto object-contain" />
                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                              <Button size="sm" variant="secondary" onClick={() => fileInputRef.current?.click()}>Change</Button>
                              <Button size="sm" variant="destructive" onClick={() => onUpdate(node.id, 'imageUrl', '')}>Remove</Button>
                          </div>
                       </div>
                     ) : (
-                      <div onClick={() => !uploading && fileInputRef.current?.click()} className="border-2 border-dashed border-academic-300 rounded-lg p-4 flex flex-col items-center justify-center gap-2 cursor-pointer hover:bg-academic-200/50">
-                        {uploading ? <Loader2 className="w-5 h-5 animate-spin"/> : <UploadCloud className="w-5 h-5 text-academic-400"/>}
-                        <span className="text-xs text-academic-500">Tap to upload</span>
+                      <div onClick={() => !uploading && fileInputRef.current?.click()} className="border-2 border-dashed border-academic-300 rounded-lg p-3 flex flex-col items-center justify-center gap-1 cursor-pointer hover:bg-academic-200/50 transition-colors">
+                        {uploading ? <Loader2 className="w-4 h-4 animate-spin"/> : <UploadCloud className="w-4 h-4 text-academic-400"/>}
+                        <span className="text-[10px] text-academic-500">Upload Image</span>
                       </div>
                     )}
                   </div>
@@ -222,12 +245,12 @@ const BuilderNodeRenderer: React.FC<{
           )}
 
           {!isSection && !isText && (
-             <div className="pl-2 border-l-2 border-academic-100 space-y-3">
+             <div className="pl-2 border-l-2 border-academic-100 space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
                    <select 
                       value={node.questionType} 
                       onChange={(e) => onUpdate(node.id, 'questionType', e.target.value)}
-                      className="text-sm border border-academic-200 rounded px-2 py-1 bg-white"
+                      className="text-xs border border-academic-200 rounded px-2 py-1 bg-white focus:ring-1 focus:ring-primary-500 outline-none"
                    >
                       <option value={QuestionType.LIKERT_SCALE}>Likert Scale</option>
                       <option value={QuestionType.SINGLE_CHOICE}>Multiple Choice</option>
@@ -236,8 +259,8 @@ const BuilderNodeRenderer: React.FC<{
                 </div>
                 {node.questionType === QuestionType.LIKERT_SCALE && (
                    <div className="flex gap-2">
-                      <Button size="sm" variant={node.likertScale === 5 ? 'primary' : 'outline'} onClick={() => onUpdate(node.id, 'likertScale', 5)}>5-Point</Button>
-                      <Button size="sm" variant={node.likertScale === 7 ? 'primary' : 'outline'} onClick={() => onUpdate(node.id, 'likertScale', 7)}>7-Point</Button>
+                      <Button size="sm" variant={node.likertScale === 5 ? 'primary' : 'outline'} onClick={() => onUpdate(node.id, 'likertScale', 5)} className="text-xs h-7">5-Point</Button>
+                      <Button size="sm" variant={node.likertScale === 7 ? 'primary' : 'outline'} onClick={() => onUpdate(node.id, 'likertScale', 7)} className="text-xs h-7">7-Point</Button>
                    </div>
                 )}
                 {node.questionType === QuestionType.SINGLE_CHOICE && (
@@ -247,7 +270,7 @@ const BuilderNodeRenderer: React.FC<{
                                const newOpts = [...(node.options || [])];
                                newOpts[idx].label = e.target.value;
                                onUpdate(node.id, 'options', newOpts);
-                            }} className="block w-full text-sm border border-academic-200 rounded px-2 py-1" 
+                            }} className="block w-full text-xs border border-academic-200 rounded px-2 py-1 focus:border-primary-400 outline-none" 
                          />
                       ))}
                       <button className="text-xs text-primary-600 font-medium hover:underline" onClick={() => {
@@ -261,15 +284,15 @@ const BuilderNodeRenderer: React.FC<{
 
           {isSection && (
              <div className="flex flex-wrap gap-2 pt-2">
-                <Button size="sm" variant="secondary" onClick={() => onAddChild(node.id, NodeType.SECTION)} className="text-xs h-7 px-2"><FolderPlus className="w-3 h-3 mr-1" /> Sub</Button>
-                <Button size="sm" variant="secondary" onClick={() => onAddChild(node.id, NodeType.QUESTION)} className="text-xs h-7 px-2"><Plus className="w-3 h-3 mr-1" /> Q</Button>
-                <Button size="sm" variant="secondary" onClick={() => onAddChild(node.id, NodeType.TEXT)} className="text-xs h-7 px-2"><Type className="w-3 h-3 mr-1" /> Txt</Button>
+                <Button size="sm" variant="secondary" onClick={() => onAddChild(node.id, NodeType.SECTION)} className="text-[10px] h-6 px-2 uppercase tracking-wide"><FolderPlus className="w-3 h-3 mr-1" /> Sub-Section</Button>
+                <Button size="sm" variant="secondary" onClick={() => onAddChild(node.id, NodeType.QUESTION)} className="text-[10px] h-6 px-2 uppercase tracking-wide"><Plus className="w-3 h-3 mr-1" /> Question</Button>
+                <Button size="sm" variant="secondary" onClick={() => onAddChild(node.id, NodeType.TEXT)} className="text-[10px] h-6 px-2 uppercase tracking-wide"><Type className="w-3 h-3 mr-1" /> Text</Button>
              </div>
           )}
         </div>
       </div>
       {isSection && node.children.length > 0 && (
-         <div className="mt-4">
+         <div className="mt-3 border-l border-academic-100 ml-1 pl-1">
             {node.children.map((child, idx) => (
                <BuilderNodeRenderer key={child.id} node={child} level={`${level}.${idx + 1}`} onUpdate={onUpdate} onAddChild={onAddChild} onDelete={onDelete} />
             ))}
@@ -279,25 +302,20 @@ const BuilderNodeRenderer: React.FC<{
   );
 };
 
-// --- Component: Preview (支持 HTML 渲染) ---
+// --- Component: Preview (支持自定义编号 & 字体调整) ---
 const PreviewNodeRenderer: React.FC<{ node: SurveyNode; level: string }> = ({ node, level }) => {
   const imageStyleClass = "w-full h-auto object-contain rounded mb-4 border border-academic-200";
-
-  // 渲染函数：解析 HTML
-  const renderRichText = (text?: string, isTitle?: boolean) => {
-    if (!text) return isTitle ? 'Untitled' : null;
-    const baseClass = isTitle ? "" : "text-sm text-academic-600 whitespace-pre-wrap leading-relaxed";
-    return <span className={baseClass} dangerouslySetInnerHTML={{ __html: text }} />;
-  };
+  // 优先显示 customId，如果没有则不显示（因为用户想要完全控制），或者显示 level 兜底
+  const displayId = node.customId ? node.customId : ''; 
 
   if (node.type === NodeType.SECTION) {
     return (
-      <div className="mb-6 border-l-2 border-academic-200 pl-3 md:pl-4 mt-4">
-        <h3 className="text-base md:text-lg font-bold text-academic-800 mb-2 flex items-center gap-2">
-          <span className="text-xs font-mono text-academic-400 shrink-0">{level}</span> 
+      <div className="mb-6 border-l-4 border-academic-300 pl-4 mt-6">
+        <h3 className="text-lg font-bold text-academic-800 mb-2 flex items-baseline gap-2">
+          {displayId && <span className="text-base font-mono text-academic-500 shrink-0">{displayId}</span>}
           <span>{renderRichText(node.title, true)}</span>
         </h3>
-        {node.description && <div className="mb-4 bg-academic-50 p-3 rounded">{renderRichText(node.description)}</div>}
+        {node.description && <div className="mb-4 text-sm text-academic-600 leading-relaxed">{renderRichText(node.description)}</div>}
         {node.imageUrl && <img src={node.imageUrl} className={imageStyleClass} alt="Section" />}
         <div className="space-y-4">
           {node.children.map((child, idx) => <PreviewNodeRenderer key={child.id} node={child} level={`${level}.${idx+1}`} />)}
@@ -307,26 +325,28 @@ const PreviewNodeRenderer: React.FC<{ node: SurveyNode; level: string }> = ({ no
   }
   if (node.type === NodeType.TEXT) {
     return (
-       <div className="bg-white p-4 rounded border border-academic-100 mb-4">
-          <h4 className="font-bold text-academic-900 mb-2">{renderRichText(node.title, true)}</h4>
+       <div className="bg-white p-5 rounded border border-academic-100 mb-4 shadow-sm">
+          <h4 className="font-bold text-academic-900 mb-2 text-base">{renderRichText(node.title, true)}</h4>
           {node.imageUrl && <img src={node.imageUrl} className={imageStyleClass} alt="Content" />}
           {renderRichText(node.description)}
        </div>
     );
   }
   return (
-    <div className="bg-white p-4 md:p-5 rounded-lg border border-academic-200 shadow-sm mb-4">
-       <div className="flex gap-2 md:gap-3">
-          <span className="text-xs font-mono text-academic-400 mt-1 shrink-0">{level}</span>
+    <div className="bg-white p-5 rounded-lg border border-academic-200 shadow-sm mb-4">
+       <div className="flex gap-3">
+          {/* 显示自定义编号 */}
+          {displayId && <span className="text-sm font-bold text-academic-500 mt-0.5 shrink-0 w-8 text-right">{displayId}</span>}
+          
           <div className="flex-1 min-w-0">
-             <h4 className="font-medium text-academic-900 mb-2">{renderRichText(node.title, true)}</h4>
-             {node.description && <div className="mb-3 text-academic-500">{renderRichText(node.description)}</div>}
+             <h4 className="font-medium text-academic-900 mb-2 text-base">{renderRichText(node.title, true)}</h4>
+             {node.description && <div className="mb-3 text-sm text-academic-500">{renderRichText(node.description)}</div>}
              {node.imageUrl && <img src={node.imageUrl} className={imageStyleClass} alt="Question" />}
              <div className="mt-2 pointer-events-none opacity-80">
                 {node.questionType === QuestionType.LIKERT_SCALE && (
                    <div className="flex justify-between max-w-sm gap-1">
                       {Array.from({length: node.likertScale || 5}, (_, i) => i + 1).map(n => (
-                         <div key={n} className="w-8 h-8 md:w-10 md:h-10 rounded-full border border-academic-300 flex items-center justify-center text-xs md:text-sm text-academic-500 bg-gray-50">{n}</div>
+                         <div key={n} className="w-9 h-9 rounded-full border border-academic-300 flex items-center justify-center text-sm text-academic-500 bg-gray-50">{n}</div>
                       ))}
                    </div>
                 )}
@@ -391,11 +411,16 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
 
   const fetchResponses = async () => {
     setIsLoadingResponses(true);
-    const { data: responseData, error } = await supabase.from('responses').select('*, experts(*), projects(title)');
+    const { data: responseData, error } = await supabase
+      .from('responses')
+      .select('*, experts(*), projects(title, nodes)');
+      
     if (!error && responseData) {
       setResponses(responseData.map((r: any) => ({
         id: r.id, name: r.experts?.name || 'Unknown', institution: r.experts?.institution || 'Unknown',
-        status: r.status || 'SUBMITTED', title: r.projects?.title || 'Untitled', details: r.answers,
+        status: r.status || 'SUBMITTED', title: r.projects?.title || 'Untitled', 
+        details: r.answers,
+        projectNodes: r.projects?.nodes || [], 
         expertFull: r.experts 
       })));
     }
@@ -411,7 +436,7 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
   const handleExportCSV = async (project: Project) => {
     try {
       setIsExporting(true);
-      const { data: responseData, error } = await supabase.from('responses').select('*, experts(*), projects(access_code)').eq('project_id', project.id);
+      const { data: responseData, error } = await supabase.from('responses').select('*, experts(*), projects(title)').eq('project_id', project.id);
       if (error) throw error;
       if (!responseData || responseData.length === 0) { alert("No responses found."); return; }
 
@@ -688,8 +713,32 @@ export const AdminFlow: React.FC<AdminFlowProps> = ({ onProjectPublished }) => {
                           <h2 className="text-xl font-bold">{selectedResponse.name}</h2>
                           <button onClick={() => setSelectedResponse(null)}><Settings className="w-5 h-5 rotate-45"/></button>
                        </div>
-                       <div className="p-8 overflow-y-auto bg-gray-50 flex-1">
-                          <pre className="text-xs bg-white p-4 rounded border overflow-auto">{JSON.stringify(selectedResponse.details, null, 2)}</pre>
+                       <div className="p-8 overflow-y-auto bg-gray-50 flex-1 space-y-4">
+                          
+                          {/* 这里已经做了修改：显示漂亮的问答列表 */}
+                          {flattenQuestions(selectedResponse.projectNodes || []).map((q, idx) => {
+                             const ans = selectedResponse.details[q.id];
+                             return (
+                                <div key={q.id} className="bg-white p-4 rounded border border-academic-200">
+                                   <div className="font-bold text-academic-900 mb-2 flex items-baseline">
+                                     <span className="text-academic-400 mr-2 text-xs font-mono shrink-0">
+                                        {/* 优先显示自定义编号，没有则显示顺序号 */}
+                                        {q.customId || `Q${idx + 1}`}
+                                     </span>
+                                     <span>{renderRichText(q.title, true)}</span>
+                                   </div>
+                                   <div className="text-primary-700 bg-primary-50 px-3 py-2 rounded text-sm font-medium inline-block">
+                                      {ans ? ans : <span className="text-gray-400 italic">No Answer</span>}
+                                   </div>
+                                </div>
+                             );
+                          })}
+                          
+                          {(!selectedResponse.projectNodes || selectedResponse.projectNodes.length === 0) && (
+                             <pre className="text-xs bg-white p-4 rounded border overflow-auto">
+                                {JSON.stringify(selectedResponse.details, null, 2)}
+                             </pre>
+                          )}
                        </div>
                     </div>
                  </div>

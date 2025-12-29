@@ -1,22 +1,15 @@
-
-export enum UserRole {
-  ADMIN = 'ADMIN',
-  EXPERT = 'EXPERT',
-  VISITOR = 'VISITOR'
-}
-
-export enum QuestionType {
-  SINGLE_CHOICE = 'SINGLE_CHOICE',
-  MULTIPLE_CHOICE = 'MULTIPLE_CHOICE',
-  LIKERT_SCALE = 'LIKERT_SCALE',
-  TEXT_AREA = 'TEXT_AREA',
-  TRUE_FALSE = 'TRUE_FALSE'
-}
+// src/types.ts
 
 export enum NodeType {
   SECTION = 'SECTION',
   QUESTION = 'QUESTION',
-  TEXT = 'TEXT'
+  TEXT = 'TEXT' // 纯文本/媒体节点
+}
+
+export enum QuestionType {
+  LIKERT_SCALE = 'LIKERT_SCALE',
+  SINGLE_CHOICE = 'SINGLE_CHOICE',
+  TEXT_AREA = 'TEXT_AREA'
 }
 
 export interface Option {
@@ -28,40 +21,32 @@ export interface SurveyNode {
   id: string;
   type: NodeType;
   title: string;
-  description?: string; // Acts as "Explanation Pattern" or "Body Text" for TEXT nodes
-  imageUrl?: string; // New: Supports Pattern Images
-  children: SurveyNode[]; // Recursive children
+  description?: string;
+  imageUrl?: string; // 支持图片
   
-  // Question specific fields (only used if type === QUESTION)
-  questionType?: QuestionType;
+  // 👇 新增这一行：自定义编号
+  customId?: string; 
+
   required?: boolean;
-  options?: Option[];
-  likertScale?: 5 | 7;
+  children: SurveyNode[]; // 嵌套结构
+
+  // 问题特定字段
+  questionType?: QuestionType;
+  likertScale?: number; // 5 or 7
+  options?: Option[]; // for Single Choice
 }
 
 export interface Project {
   id: string;
   title: string;
-  subtitle?: string; // New field for H2 Subtitle
-  description: string; // Acts as Body Introduction
+  subtitle?: string;
+  description?: string;
+  nodes: SurveyNode[];
+  status: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
+  created_at: string;
   round: number;
-  totalRounds: number;
-  deadline: string; // ISO Date
-  nodes: SurveyNode[]; // Root level nodes (Tree structure)
-  status: 'DRAFT' | 'PUBLISHED' | 'CLOSED' | 'WAITING';
-  language?: 'en' | 'cn'; // New: Language of the survey
-}
-
-export interface ExpertProfile {
-  name: string;
-  institution: string;
-  title: string;
-  field: string;
-  yearsOfExperience: number;
-  isRegistered: boolean;
-}
-
-export interface Response {
-  questionId: string;
-  value: string | string[] | number;
+  total_rounds: number;
+  deadline?: string;
+  language: 'en' | 'cn';
+  access_code?: string; // Access code for experts
 }
