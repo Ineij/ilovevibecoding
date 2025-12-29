@@ -14,7 +14,6 @@
         theme: {
           extend: {
             fontFamily: {
-              // 👇 修改这里：将 'DengXian' (等线) 设为首选字体
               sans: ['"DengXian"', '"Microsoft YaHei"', 'Inter', 'sans-serif'],
             },
             colors: {
@@ -48,9 +47,8 @@
       body {
         background-color: #f8fafc;
         color: #1e293b;
-        font-family: "DengXian", "Microsoft YaHei", sans-serif; /* 强制全局应用 */
+        font-family: "DengXian", "Microsoft YaHei", sans-serif;
       }
-      /* 滚动条美化 */
       ::-webkit-scrollbar { width: 6px; }
       ::-webkit-scrollbar-track { background: transparent; }
       ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
@@ -71,6 +69,8 @@
 </head>
   <body>
     <div id="root"></div>
-  <script type="module" src="/src/main.tsx"></script>
+    
+    <script type="module" src="/index.tsx"></script>
+    
 </body>
 </html>
